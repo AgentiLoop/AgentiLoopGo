@@ -4,7 +4,7 @@ AgentiLoop is an AI coding agent that runs in your terminal, in the spirit of Cl
 
 It's written in Go and runs on macOS, Linux and Windows. It is the Go twin of [AgentiLoopCLI](https://github.com/AgentiLoop/AgentiLoopCLI) (Rust): same features, same options, same settings, session and MCP files, so you can switch between them freely. It works with Claude (Anthropic), OpenAI, local models through Ollama or LM Studio, and oMLX on Apple Silicon.
 
-Created with AgentiLoop Agent! This is our baby. Prebuilt binaries for macOS, Linux and Windows are on the [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) page, or compile it from source with Go.
+Created with AgentiLoop Agent! This is our baby. Prebuilt binaries for macOS, Linux and Windows will be on the [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) page [under construction], or compile it from source with Go.
 
 <img width="2048" height="1152" alt="AgentiLoop Coding in action" src="https://github.com/user-attachments/assets/d910bbd2-b47d-4c4a-89af-ac0753ccf279" />
 
