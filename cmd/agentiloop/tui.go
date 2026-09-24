@@ -40,6 +40,8 @@ type (
 	uiUser struct{ Text string }
 	// uiClear wipes the transcript (a different session was loaded, or /clear).
 	uiClear struct{}
+	// uiDiff: a file was written or edited; show its diff and update the files pane.
+	uiDiff struct{ Change fileChange }
 )
 
 func (uiEvent) isUiMsg()      {}
@@ -50,6 +52,7 @@ func (uiStatus) isUiMsg()     {}
 func (uiIdle) isUiMsg()       {}
 func (uiUser) isUiMsg()       {}
 func (uiClear) isUiMsg()      {}
+func (uiDiff) isUiMsg()       {}
 
 // uiQueue is an unbounded, closable queue from the agent goroutine to the UI.
 type uiQueue struct {
@@ -172,6 +175,8 @@ type entry struct {
 	text string
 	// code holds pre-styled lines (syntax-highlighted code); when set, text is ignored.
 	code []Line
+	// rowStyles is a whole-row style per code line (diff tints); nil = none.
+	rowStyles []tcell.Style
 }
 
 type linkHit struct {
@@ -220,10 +225,24 @@ type App struct {
 	// linkHits: screen cells occupied by links in the last frame, for click handling.
 	linkHits []linkHit
 	now      func() time.Time
+	// files changed this session (total diff each), in first-touched order.
+	files []fileDiff
+	// filesSel is the most recently changed file; the pane starts there when
+	// not everything fits.
+	filesSel int
+	// paneRows: pre-rendered diff of each file in files, stacked in the pane.
+	paneRows []diffRendered
+	// showFiles: Ctrl-F toggles the files pane.
+	showFiles bool
+}
+
+type diffRendered struct {
+	rows   []Line
+	styles []tcell.Style
 }
 
 func NewApp(status string) *App {
-	return &App{status: status, histIdx: -1, pendingPaths: map[string]string{}, busySince: time.Now(), now: time.Now}
+	return &App{status: status, histIdx: -1, pendingPaths: map[string]string{}, busySince: time.Now(), now: time.Now, showFiles: true}
 }
 
 // WithHistoryFile loads prompt history from path and keeps appending to it, so ↑
@@ -265,6 +284,42 @@ func (a *App) Apply(msg UiMsg) {
 		a.streaming = false
 		a.pendingPaths = map[string]string{}
 		a.scroll = 0
+		a.files = nil
+		a.refreshPane()
+	case uiDiff:
+		r := renderDiff(m.Change.Edit, inlineMax, true)
+		a.streaming = false
+		a.entries = append(a.entries, entry{kind: kindTool, code: r.rows, rowStyles: r.styles})
+		total := m.Change.Total
+		idx := -1
+		for i, f := range a.files {
+			if f.Path == total.Path {
+				idx = i
+			}
+		}
+		switch {
+		// Edited back to the original: no longer a change.
+		case idx >= 0 && total.empty():
+			a.files = append(a.files[:idx], a.files[idx+1:]...)
+		case idx >= 0:
+			a.files[idx] = total
+		case !total.empty():
+			a.files = append(a.files, total)
+		}
+		a.filesSel = max(len(a.files)-1, 0)
+		for i, f := range a.files {
+			if f.Path == total.Path {
+				a.filesSel = i
+			}
+		}
+		a.refreshPane()
+	}
+}
+
+func (a *App) refreshPane() {
+	a.paneRows = a.paneRows[:0]
+	for _, f := range a.files {
+		a.paneRows = append(a.paneRows, renderDiff(f, paneMax, false))
 	}
 }
 
@@ -375,6 +430,8 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 	case tcell.KeyCtrlC, tcell.KeyCtrlD:
 		a.quit = true
 		return actQuit{}
+	case tcell.KeyCtrlF:
+		a.showFiles = !a.showFiles
 	case tcell.KeyCtrlU:
 		a.input, a.cursor = "", 0
 	case tcell.KeyEnter:
@@ -544,7 +601,14 @@ func (a *App) Draw(s tcell.Screen) {
 	s.Clear()
 	w, h := s.Size()
 	transcriptH := max(h-4, 1)
-	a.drawTranscript(s, 0, 0, w, transcriptH)
+	// Claude Code-style "files changed" pane on the right, when there's room.
+	transcriptW := w
+	if a.showFiles && len(a.files) > 0 && w >= 100 {
+		paneW := min(max(w*2/5, 36), 90)
+		transcriptW = w - paneW
+		a.drawFiles(s, transcriptW, 0, paneW, transcriptH)
+	}
+	a.drawTranscript(s, 0, 0, transcriptW, transcriptH)
 
 	// Input box (3 rows) and status bar (1 row).
 	iy := transcriptH
@@ -572,7 +636,7 @@ func (a *App) Draw(s tcell.Screen) {
 	if a.speed != "" {
 		bar = append(bar, styled("⏱ "+a.speed+" ", fg(tcell.ColorGreen)))
 	}
-	bar = append(bar, styled("  Enter send · ↑↓ history · PgUp/PgDn scroll · click links · Ctrl-C quit", fg(tcell.ColorGray)))
+	bar = append(bar, styled("  Enter send · ↑↓ history · PgUp/PgDn scroll · click links · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
 	rev := tcell.StyleDefault.Reverse(true)
 	fill(s, 0, h-1, w, 1, rev)
 	for i := range bar {
@@ -630,12 +694,16 @@ func (a *App) drawTranscript(s tcell.Screen, x, y, w, h int) {
 	var links []linkAt
 	for _, e := range a.entries {
 		if e.code != nil {
-			for _, line := range e.code {
+			for n, line := range e.code {
+				var st *tcell.Style
+				if n < len(e.rowStyles) && e.rowStyles[n] != tcell.StyleDefault {
+					st = &e.rowStyles[n]
+				}
 				for i, piece := range hardWrap(line, w) {
 					if i > 0 {
 						piece = append(Line{raw("  ")}, piece...)
 					}
-					lines = append(lines, piece)
+					lines = append(lines, fillRow(piece, w, st))
 				}
 			}
 			lines = append(lines, nil)
@@ -693,6 +761,87 @@ func (a *App) drawTranscript(s tcell.Screen, x, y, w, h int) {
 	}
 }
 
+// drawFiles is the right-hand pane: every changed file with its +/- counts,
+// then every file's diff stacked below. When they don't all fit, the view
+// starts at the most recently changed file.
+func (a *App) drawFiles(s tcell.Screen, x, y, w, h int) {
+	border := fg(tcell.ColorGray)
+	for row := y; row < y+h; row++ {
+		s.SetContent(x, row, '│', nil, border)
+	}
+	x, w = x+1, max(w-1, 1)
+	added, removed := 0, 0
+	for _, f := range a.files {
+		added, removed = added+f.Added, removed+f.Removed
+	}
+	bold := tcell.StyleDefault.Bold(true)
+	addSt, remSt := fg(rgb(addedFG)), fg(rgb(removedFG))
+	plural := "s"
+	if len(a.files) == 1 {
+		plural = ""
+	}
+	lines := []Line{{
+		styled(fmt.Sprintf(" %d file%s changed ", len(a.files), plural), bold),
+		styled(fmt.Sprintf("+%d ", added), addSt),
+		styled(fmt.Sprintf("-%d ", removed), remSt),
+	}}
+	for i, f := range a.files {
+		counts := fmt.Sprintf("+%d -%d", f.Added, f.Removed)
+		room := max(w-len(counts)-1, 2)
+		// Keep the end of long paths: the file name matters most.
+		path := f.Path
+		if r := []rune(path); width(path) > room {
+			path = "…" + string(r[len(r)-room+1:])
+		}
+		st := tcell.StyleDefault
+		if i == a.filesSel {
+			st = bold
+		}
+		lines = append(lines, Line{
+			styled(path, st),
+			raw(strings.Repeat(" ", max(w-width(path)-len(counts), 0))),
+			styled(fmt.Sprintf("+%d", f.Added), addSt),
+			raw(" "),
+			styled(fmt.Sprintf("-%d", f.Removed), remSt),
+		})
+	}
+	var stack []Line
+	selStart := 0
+	for i, f := range a.files {
+		if i >= len(a.paneRows) {
+			break
+		}
+		if i == a.filesSel {
+			selStart = len(stack)
+		}
+		stack = append(stack, Line{styled(strings.Repeat("─", w), fg(tcell.ColorGray))})
+		stack = append(stack, Line{
+			styled(f.Path, bold),
+			styled(fmt.Sprintf("  +%d", f.Added), addSt),
+			styled(fmt.Sprintf(" -%d", f.Removed), remSt),
+		})
+		r := a.paneRows[i]
+		for n, row := range r.rows {
+			var st *tcell.Style
+			if n < len(r.styles) && r.styles[n] != tcell.StyleDefault {
+				st = &r.styles[n]
+			}
+			for _, piece := range hardWrap(row, w) {
+				stack = append(stack, fillRow(piece, w, st))
+			}
+		}
+	}
+	room := max(h-len(lines), 0)
+	start := min(selStart, max(len(stack)-room, 0))
+	lines = append(lines, stack[start:min(start+room, len(stack))]...)
+	for i, l := range lines {
+		if i >= h {
+			break
+		}
+		drawLine(s, x, y+i, w, l)
+	}
+}
+
 func (a *App) drawModal(s tcell.Screen, sw, sh int) {
 	req := a.modal
 	w := max(min(sw-4, 80), 20)
@@ -713,6 +862,75 @@ func (a *App) drawModal(s tcell.Screen, sw, sh int) {
 	if row < y+h-1 {
 		drawLine(s, x+1, row, w-2, Line{styled(fmt.Sprintf("[y]es  [n]o  [a]lways for `%s`  [esc] skip", req.Tool), tcell.StyleDefault.Bold(true))})
 	}
+}
+
+// paneMax is the number of diff lines kept per file for the files pane.
+const paneMax = 400
+
+// fillRow applies a row style (diff tint) to every span and pads the row to w
+// cells, so the background spans the whole width.
+func fillRow(l Line, w int, st *tcell.Style) Line {
+	if st == nil {
+		return l
+	}
+	out := make(Line, 0, len(l)+1)
+	_, bg, _ := st.Decompose()
+	for _, sp := range l {
+		sp.Style = sp.Style.Background(bg)
+		out = append(out, sp)
+	}
+	return append(out, styled(strings.Repeat(" ", max(w-l.Width(), 0)), *st))
+}
+
+// renderDiff builds styled rows for a diff, Claude Code style: an optional
+// summary header, then numbered -/+ lines with syntax colors, and a per-row
+// style carrying the red/green tint.
+func renderDiff(d fileDiff, maxLines int, header bool) diffRendered {
+	dim := fg(tcell.ColorGray)
+	var r diffRendered
+	add := func(l Line, st tcell.Style) {
+		r.rows = append(r.rows, l)
+		r.styles = append(r.styles, st)
+	}
+	if header {
+		add(Line{styled("⎿ ", dim), styled(d.Path, tcell.StyleDefault.Bold(true)), raw(": " + d.summary())}, tcell.StyleDefault)
+	}
+	total, shown := 0, 0
+	for _, h := range d.Hunks {
+		total += len(h)
+	}
+hunks:
+	for hi, hunk := range d.Hunks {
+		if hi > 0 {
+			add(Line{styled(fmt.Sprintf("%7s", "⋮"), dim)}, tcell.StyleDefault)
+		}
+		for _, l := range hunk {
+			if shown == maxLines {
+				break hunks
+			}
+			shown++
+			sign, rowSt, textSt, signSt := " ", tcell.StyleDefault, tcell.StyleDefault, dim
+			switch l.Tag {
+			case tagRemoved:
+				sign, rowSt = "-", tcell.StyleDefault.Background(rgb(removedBG))
+				textSt, signSt = fg(rgb(removedFG)), fg(rgb(removedFG)).Bold(true)
+			case tagAdded:
+				sign, rowSt = "+", tcell.StyleDefault.Background(rgb(addedBG))
+				textSt, signSt = fg(rgb(addedFG)), fg(rgb(addedFG)).Bold(true)
+			}
+			line := Line{styled(fmt.Sprintf("%5d ", l.No), dim), styled(sign+" ", signSt)}
+			if hl := highlight(l.Text, d.ext()); len(hl) > 0 {
+				line = append(line, hl[0]...)
+			} else {
+				line = append(line, styled(l.Text, textSt))
+			}
+			add(line, rowSt)
+		}
+	}
+	if total > shown {
+		add(Line{styled(fmt.Sprintf("      … %d more lines", total-shown), dim)}, tcell.StyleDefault)
+	}
+	return r
 }
 
 // ---- event loop ------------------------------------------------------------------

@@ -288,7 +288,7 @@ func run() error {
 	st := &cmdState{agent: agent, provider: prov, saved: &saved, session: session, sessionsDir: sdir, mcp: mgr}
 
 	if !interactive {
-		err := agent.Run(ctx, strings.Join(cli.prompt, " "), render)
+		err := agent.Run(ctx, strings.Join(cli.prompt, " "), renderTracked(newDiffTracker(cwd)))
 		st.persist()
 		return err
 	}
@@ -320,6 +320,7 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, cwd string) error
 	submit := make(chan string, 1)
 	uiDone := make(chan error, 1)
 	go func() { uiDone <- runTUI(app, q, submit) }()
+	tracker := newDiffTracker(cwd)
 	// Agent side: one prompt or slash command at a time, until the UI hangs up.
 	for line := range submit {
 		if strings.HasPrefix(line, "/") {
@@ -330,6 +331,7 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, cwd string) error
 			err := st.slashCommand(ctx, line, func(s string) { out = append(out, s) })
 			// /resume and /clear switch sessions: show the new one's conversation.
 			if st.session.ID != before {
+				tracker = newDiffTracker(cwd)
 				q.Send(uiClear{})
 				replayTUI(q, st.agent.History)
 			}
@@ -342,7 +344,16 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, cwd string) error
 			// /model, /clear and /resume change the model or session id.
 			q.Send(uiStatus{status()})
 		} else {
-			if err := st.agent.Run(ctx, line, func(ev core.Event) { q.Send(uiEvent{ev}) }); err != nil {
+			onEvent := func(ev core.Event) {
+				// Snapshot/diff before the event crosses to the UI goroutine:
+				// the tool runs right after EvToolCall returns.
+				change := tracker.observe(ev)
+				q.Send(uiEvent{ev})
+				if change != nil {
+					q.Send(uiDiff{*change})
+				}
+			}
+			if err := st.agent.Run(ctx, line, onEvent); err != nil {
 				q.Send(uiError{err.Error()})
 			}
 			st.persist()
@@ -357,6 +368,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 	fmt.Fprintf(os.Stderr, "AgentiLoop — cwd: %s  provider: %s  model: %s  session: %s  (/help for commands)\n",
 		cwd, st.provider.Name(), st.agent.Model(), st.session.ID)
 	replayREPL(st.agent.History)
+	renderLine := renderTracked(newDiffTracker(cwd))
 
 	// liner gives us line editing plus up/down arrow recall of earlier prompts.
 	ln := liner.NewLiner()
@@ -402,7 +414,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			}
 			continue
 		}
-		if err := st.agent.Run(ctx, line, render); err != nil {
+		if err := st.agent.Run(ctx, line, renderLine); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 		st.persist()
@@ -655,6 +667,18 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 
 func compactedLine(beforeTokens uint64, messagesDropped int) string {
 	return fmt.Sprintf("\U0001f4e6 context compacted (%d tokens, %d messages → summary)", beforeTokens, messagesDropped)
+}
+
+// renderTracked is render plus a -/+ diff after each successful write_file / edit_file.
+func renderTracked(t *diffTracker) func(core.Event) {
+	color := colorStderr()
+	return func(ev core.Event) {
+		change := t.observe(ev)
+		render(ev)
+		if change != nil {
+			fmt.Fprint(os.Stderr, ansiDiff(change.Edit, inlineMax, color))
+		}
+	}
 }
 
 // render prints agent events for the REPL and one-shot mode.
