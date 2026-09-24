@@ -1,0 +1,5 @@
+/agentiloop
+/agentiloop.exe
+/dist/
+.env
+.agent/
