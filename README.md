@@ -1,5 +1,17 @@
 # AgentiLoopGo
 
+### Attn: Early Daring Adopters! We put out a pre-release v0.0.1 build for Mac, Windows and Linux! 
+
+---
+
+**Take it for a spin!** Read the README and see how long it takes you to get AgentiLoop up and running. If you hit any issues, let us know. We'd love your feedback.
+
+**Bonus:** A Rust version is available too: **AgentiLoopCLI** → https://github.com/AgentiLoop/AgentiLoopCLI
+
+Try both and tell us which one does it better: **Go or Rust?** 🐹 vs 🦀
+
+---
+
 AgentiLoop is an AI coding agent that runs in your terminal, in the spirit of Claude Code. You describe what you want in plain language. The agent reads your files, edits code and runs commands to get it done, and it asks your permission before it changes anything.
 
 It's written in Go and runs on macOS, Linux and Windows. It is the Go twin of [AgentiLoopCLI](https://github.com/AgentiLoop/AgentiLoopCLI) (Rust): same features, same options, same settings, session and MCP files, so you can switch between them freely. It works with Claude (Anthropic), OpenAI, local models through Ollama or LM Studio, and oMLX on Apple Silicon.
