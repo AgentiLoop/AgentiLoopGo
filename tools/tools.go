@@ -261,6 +261,7 @@ func (Bash) Call(ctx context.Context, tc core.ToolContext, input json.RawMessage
 		cmd = exec.CommandContext(ctx, "sh", "-c", a.Command)
 	}
 	cmd.Dir = tc.Cwd
+	killTreeOnCancel(cmd)
 	cmd.WaitDelay = time.Second // don't hang on grandchildren holding the pipes
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
