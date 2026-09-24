@@ -3,8 +3,8 @@
 # - Push a tag like `v0.1.0` → builds everything and publishes a GitHub Release.
 # - "Run workflow" on the Actions tab → builds everything; download from the run's Artifacts.
 #
-# macOS signing is optional: add these repo secrets and the mac binaries get
-# signed with your Developer ID and notarized. Without them they're unsigned.
+# macOS binaries are always signed with the Developer ID and notarized; the
+# build fails if any of these repo secrets is missing or Apple rejects it:
 #   MACOS_CERT_P12        base64 of a "Developer ID Application" .p12
 #   MACOS_CERT_PASSWORD   password of that .p12
 #   MACOS_SIGN_IDENTITY   e.g. "Developer ID Application: Your Name (TEAMID)"
@@ -25,8 +25,6 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     env:
-      # `secrets` can't be used in `if:`, so expose "is a cert configured?" as an env var.
-      HAS_MAC_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
       CGO_ENABLED: "0"
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
@@ -53,8 +51,8 @@ jobs:
           EXT=""; [ "$GOOS" = windows ] && EXT=".exe"
           go build -trimpath -ldflags "-s -w" -o "dist/agentiloop${EXT}" ./cmd/agentiloop
 
-      - name: Sign and notarize (macOS, optional)
-        if: runner.os == 'macOS' && env.HAS_MAC_CERT == 'true'
+      - name: Sign and notarize (macOS)
+        if: runner.os == 'macOS'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -63,6 +61,10 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          # Required: never ship an unsigned or un-notarized mac binary.
+          for v in MACOS_CERT_P12 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is not set"; exit 1; }
+          done
           BIN=dist/agentiloop
           KC=$RUNNER_TEMP/build.keychain
           echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
@@ -73,14 +75,13 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
           security list-keychains -d user -s "$KC"
           codesign --force --timestamp --options runtime --sign "$MACOS_SIGN_IDENTITY" "$BIN"
-          # Notarize only when the Apple ID credentials are set; signing alone still works.
-          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
-            ditto -c -k "$BIN" "$RUNNER_TEMP/notarize.zip"
-            xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --wait \
-              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
-          else
-            echo "APPLE_ID / APPLE_APP_PASSWORD not set; skipping notarization"
-          fi
+          codesign --verify --strict --verbose=2 "$BIN"
+          ditto -c -k "$BIN" "$RUNNER_TEMP/notarize.zip"
+          # --wait returns 0 even when Apple rejects; check the status explicitly.
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            | tee "$RUNNER_TEMP/notary.log"
+          grep -q "status: Accepted" "$RUNNER_TEMP/notary.log" || { echo "::error::notarization was not accepted"; exit 1; }
 
       - name: Package (macOS / Linux)
         if: runner.os != 'Windows'
