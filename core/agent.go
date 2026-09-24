@@ -105,11 +105,12 @@ func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config A
 	return &Agent{provider: p, tools: tools, policy: policy, config: config, tc: tc}
 }
 
-func (a *Agent) Model() string           { return a.config.Model }
-func (a *Agent) SetModel(m string)       { a.config.Model = m }
-func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
-func (a *Agent) Provider() Provider      { return a.provider }
-func (a *Agent) Tools() *ToolRegistry    { return a.tools }
+func (a *Agent) Model() string            { return a.config.Model }
+func (a *Agent) SetModel(m string)        { a.config.Model = m }
+func (a *Agent) LastInputTokens() uint64  { return a.lastInputTokens }
+func (a *Agent) Provider() Provider       { return a.provider }
+func (a *Agent) Tools() *ToolRegistry     { return a.tools }
+func (a *Agent) Policy() PermissionPolicy { return a.policy }
 
 // Clear drops all conversation context and tool history.
 func (a *Agent) Clear() {
@@ -294,6 +295,18 @@ func compactJSON(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &v) != nil {
 		return string(raw)
 	}
-	out, _ := json.Marshal(v)
-	return string(out)
+	return MarshalString(v, "")
+}
+
+// MarshalString encodes v like serde_json: no HTML escaping of <, >, &.
+// indent "" gives compact output.
+func MarshalString(v any, indent string) string {
+	var sb strings.Builder
+	enc := json.NewEncoder(&sb)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", indent)
+	if enc.Encode(v) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(sb.String(), "\n")
 }
