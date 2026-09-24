@@ -1,0 +1,124 @@
+# Builds `agentiloop` for macOS, Linux and Windows.
+#
+# - Push a tag like `v0.1.0` → builds everything and publishes a GitHub Release.
+# - "Run workflow" on the Actions tab → builds everything; download from the run's Artifacts.
+#
+# macOS signing is optional: add these repo secrets and the mac binaries get
+# signed with your Developer ID and notarized. Without them they're unsigned.
+#   MACOS_CERT_P12        base64 of a "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD   password of that .p12
+#   MACOS_SIGN_IDENTITY   e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   for notarization (app-specific password)
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    env:
+      # `secrets` can't be used in `if:`, so expose "is a cert configured?" as an env var.
+      HAS_MAC_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+      CGO_ENABLED: "0"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64,    os: macos-latest,   goos: darwin,  goarch: arm64 }
+          - { name: macos-x86_64,   os: macos-latest,   goos: darwin,  goarch: amd64 }
+          - { name: linux-x86_64,   os: ubuntu-latest,  goos: linux,   goarch: amd64 }
+          - { name: linux-arm64,    os: ubuntu-latest,  goos: linux,   goarch: arm64 }
+          - { name: windows-x86_64, os: windows-latest, goos: windows, goarch: amd64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        shell: bash
+        run: |
+          EXT=""; [ "$GOOS" = windows ] && EXT=".exe"
+          go build -trimpath -ldflags "-s -w" -o "dist/agentiloop${EXT}" ./cmd/agentiloop
+
+      - name: Sign and notarize (macOS, optional)
+        if: runner.os == 'macOS' && env.HAS_MAC_CERT == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          BIN=dist/agentiloop
+          KC=$RUNNER_TEMP/build.keychain
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC"
+          codesign --force --timestamp --options runtime --sign "$MACOS_SIGN_IDENTITY" "$BIN"
+          # Notarize only when the Apple ID credentials are set; signing alone still works.
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+            ditto -c -k "$BIN" "$RUNNER_TEMP/notarize.zip"
+            xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --wait \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          else
+            echo "APPLE_ID / APPLE_APP_PASSWORD not set; skipping notarization"
+          fi
+
+      - name: Package (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: |
+          NAME=agentiloop-${{ matrix.name }}
+          mkdir -p "pkg/$NAME"
+          cp dist/agentiloop README.md LICENSE "pkg/$NAME/"
+          tar -C pkg -czf "pkg/$NAME.tar.gz" "$NAME"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "agentiloop-${{ matrix.name }}"
+          New-Item -ItemType Directory -Force pkg/$name | Out-Null
+          Copy-Item dist/agentiloop.exe, README.md, LICENSE pkg/$name/
+          Compress-Archive -Path pkg/$name -DestinationPath pkg/$name.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentiloop-${{ matrix.name }}
+          path: |
+            pkg/*.tar.gz
+            pkg/*.zip
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          # 0.x versions and tags like v1.0.0-beta.1 are published as pre-releases.
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
