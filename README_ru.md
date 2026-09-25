@@ -1,3 +1,5 @@
+<a href="https://fluxionai.world/register?source=github&campaign=aiagent&promo=AIAGENT"><img src="docs/sponsors/fluxion-ai-silver-ad_ru.svg" width="900" alt="Fluxion AI, серебряный спонсор: единый API для GPT, Claude и других ведущих моделей ИИ. Экономия до 70 % по сравнению с официальными ценами API и $3 кредитов на API." /></a>
+
 # AgentiLoopGo
 
 🌐 [English](README.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [中文 (简体)](README_zh.md) · [Русский](README_ru.md) · [한국어](README_ko.md) · [日本語](README_ja.md)
@@ -559,3 +561,7 @@ go run ./examples/mcp-example-server --http 8791   # или --sse 8792, или -
 ## Лицензия
 
 [PolyForm Noncommercial 1.0.0](LICENSE). Вы можете использовать, изменять и распространять это программное обеспечение в личных и некоммерческих целях. Коммерческое использование, включая создание или продажу коммерческих версий, остаётся за AgentiLoop. Чтобы получить коммерческую лицензию, свяжитесь с AgentiLoop.
+
+---
+
+<a href="https://fluxionai.world/register?source=github&campaign=aiagent&promo=AIAGENT"><img src="docs/sponsors/fluxion-ai-silver-ad_ru.svg" width="900" alt="Fluxion AI, серебряный спонсор: единый API для GPT, Claude и других ведущих моделей ИИ. Экономия до 70 % по сравнению с официальными ценами API и $3 кредитов на API." /></a>
