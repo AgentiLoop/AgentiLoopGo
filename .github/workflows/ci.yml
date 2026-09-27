@@ -1,4 +1,5 @@
-# Runs the test suite on macOS, Linux and Windows for every push and pull request.
+# Runs the test suite on macOS, Linux and Windows for every push and pull request,
+# plus a Windows smoke test of the setup wizard / --reset against HKCU\Environment.
 
 name: CI
 
@@ -26,6 +27,12 @@ jobs:
         # The race detector needs cgo; keep Windows on the plain test run.
         run: |
           if [ "$RUNNER_OS" = Windows ]; then go test ./...; else go test -race ./...; fi
+      - name: Windows smoke test (wizard + --reset)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          go build -o agentiloop.exe ./cmd/agentiloop
+          pwsh scripts/windows-smoke.ps1 -Binary .\agentiloop.exe
       - name: Cross-compile every release target
         shell: bash
         run: |
