@@ -182,6 +182,11 @@ func run() error {
 	// so a bare `agentiloop` reopens with the same provider, model, UI and session.
 	saved := loadSettings()
 	interactive := len(cli.prompt) == 0
+	if cli.setup || shouldRunWizard(interactive, cli.provider != "") {
+		if err := runWizard(ctx, &saved, os.Stdin, os.Stdout); err != nil {
+			return err
+		}
+	}
 	last := saved.Last
 	useTUI := interactive && !cli.noTUI && (cli.tui || last.TUI)
 	maxTurns := 50
