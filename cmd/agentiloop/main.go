@@ -27,7 +27,7 @@ const version = "0.0.2"
 type cliArgs struct {
 	provider, model, cwd, resume              string
 	yes, continueLast, newSession, tui, noTUI bool
-	noMCP                                     bool
+	noMCP, setup, reset                       bool
 	maxTurns                                  *int
 	compactAt                                 *uint64
 	prompt                                    []string
@@ -83,6 +83,8 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.BoolVar(&c.tui, "tui", false, "Full-screen terminal UI instead of the line REPL. Remembered. [env: AGENTILOOP_TUI]")
 	fs.BoolVar(&c.noTUI, "no-tui", false, "Use the line REPL even if the TUI was used last time")
 	fs.BoolVar(&c.noMCP, "no-mcp", false, "Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]")
+	fs.BoolVar(&c.setup, "setup", false, "Run the first-time setup wizard (provider, key, model). Runs by itself on a\nmachine with no credentials and no ~/.agentiloop.")
+	fs.BoolVar(&c.reset, "reset", false, "Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,\nmcp.json), the agentiloop block in your shell profile and Keychain items the\nwizard created. Asks first unless --yes.")
 	help := fs.BoolP("help", "h", false, "Print help")
 	ver := fs.BoolP("version", "V", false, "Print version")
 	fs.Usage = func() {}
@@ -143,6 +145,12 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		return nil, false, conflict("--tui", "[PROMPT]...")
 	case c.tui && c.noTUI:
 		return nil, false, conflict("--no-tui", "--tui")
+	case c.setup && c.reset:
+		return nil, false, conflict("--setup", "--reset")
+	case c.setup && len(c.prompt) > 0:
+		return nil, false, conflict("--setup", "[PROMPT]...")
+	case c.reset && len(c.prompt) > 0:
+		return nil, false, conflict("--reset", "[PROMPT]...")
 	}
 	return &c, false, nil
 }
@@ -152,6 +160,10 @@ func run() error {
 	if err != nil || done {
 		return err
 	}
+	if cli.reset {
+		return runReset(cli.yes, os.Stdin, os.Stdout)
+	}
+	loadEnvFile()
 	ctx := context.Background()
 
 	cwd := cli.cwd
