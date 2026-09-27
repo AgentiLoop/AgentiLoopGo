@@ -382,7 +382,12 @@ func (c *Codex) CompleteStream(ctx context.Context, req core.ProviderRequest, on
 		return core.ProviderResponse{}, err
 	}
 	defer resp.Body.Close()
+	return readResponsesStream(resp, onText, "codex")
+}
 
+// readResponsesStream parses a Responses API SSE stream (Codex backend or
+// api.openai.com /v1/responses) into one assistant turn. who prefixes stream errors.
+func readResponsesStream(resp *http.Response, onText func(string), who string) (core.ProviderResponse, error) {
 	out := core.ProviderResponse{Message: core.Message{Role: core.RoleAssistant}, StopReason: core.StopEndTurn}
 	r := bufio.NewReader(resp.Body)
 	for {
@@ -459,7 +464,7 @@ func (c *Codex) CompleteStream(ctx context.Context, req core.ProviderRequest, on
 					if msg == "" {
 						msg = "response.failed"
 					}
-					return core.ProviderResponse{}, fmt.Errorf("codex: %s", msg)
+					return core.ProviderResponse{}, fmt.Errorf("%s: %s", who, msg)
 				case "error":
 					msg := ev.Message
 					if msg == "" {
@@ -468,7 +473,7 @@ func (c *Codex) CompleteStream(ctx context.Context, req core.ProviderRequest, on
 					if msg == "" {
 						msg = "stream error"
 					}
-					return core.ProviderResponse{}, fmt.Errorf("codex: %s", msg)
+					return core.ProviderResponse{}, fmt.Errorf("%s: %s", who, msg)
 				}
 			}
 		}
@@ -476,7 +481,7 @@ func (c *Codex) CompleteStream(ctx context.Context, req core.ProviderRequest, on
 			break
 		}
 		if rerr != nil {
-			return core.ProviderResponse{}, fmt.Errorf("reading Codex stream: %w", rerr)
+			return core.ProviderResponse{}, fmt.Errorf("reading %s stream: %w", who, rerr)
 		}
 	}
 	for _, b := range out.Message.Content {

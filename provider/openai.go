@@ -269,6 +269,52 @@ func (o *OpenAI) wireRequest(req core.ProviderRequest, stream bool) map[string]a
 	return body
 }
 
+// usesResponses: real OpenAI goes through /v1/responses. Current models
+// (gpt-6-*) reject function tools on /v1/chat/completions whenever reasoning
+// is on — which it is by default — while Responses takes tools either way.
+// Same wire format as the Codex backend, so its converters and SSE parser
+// are reused. Every other compatible server keeps chat/completions.
+func (o *OpenAI) usesResponses() bool {
+	return o.name == "openai" && strings.HasPrefix(o.baseURL, "https://api.openai.com")
+}
+
+func (o *OpenAI) sendResponses(ctx context.Context, req core.ProviderRequest) (*http.Response, error) {
+	body := map[string]any{
+		"model":             req.Model,
+		"instructions":      req.System,
+		"input":             codexInput(req.Messages),
+		"max_output_tokens": req.MaxTokens,
+		"store":             false,
+		"stream":            true,
+	}
+	if len(req.Tools) > 0 {
+		tools := make([]any, 0, len(req.Tools))
+		for _, t := range req.Tools {
+			tools = append(tools, map[string]any{"type": "function", "name": t.Name, "description": t.Description, "parameters": t.InputSchema})
+		}
+		body["tools"] = tools
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	hr, err := o.newRequest(ctx, http.MethodPost, "/responses", data)
+	if err != nil {
+		return nil, err
+	}
+	hr.Header.Set("accept", "text/event-stream")
+	resp, err := o.client.Do(hr)
+	if err != nil {
+		return nil, fmt.Errorf("request to %s failed: %w", o.baseURL, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		defer resp.Body.Close()
+		text, _ := io.ReadAll(resp.Body)
+		return nil, o.httpError(resp, text)
+	}
+	return resp, nil
+}
+
 func (o *OpenAI) sendChat(ctx context.Context, req core.ProviderRequest, stream bool) (*http.Response, error) {
 	data, err := json.Marshal(o.wireRequest(req, stream))
 	if err != nil {
@@ -532,6 +578,9 @@ func isSnapshotDate(s string) bool {
 }
 
 func (o *OpenAI) Complete(ctx context.Context, req core.ProviderRequest) (core.ProviderResponse, error) {
+	if o.usesResponses() {
+		return o.CompleteStream(ctx, req, func(string) {})
+	}
 	resp, err := o.sendChat(ctx, req, false)
 	if err != nil {
 		return core.ProviderResponse{}, err
@@ -575,6 +624,14 @@ func (o *OpenAI) Complete(ctx context.Context, req core.ProviderRequest) (core.P
 }
 
 func (o *OpenAI) CompleteStream(ctx context.Context, req core.ProviderRequest, onText func(string)) (core.ProviderResponse, error) {
+	if o.usesResponses() {
+		resp, err := o.sendResponses(ctx, req)
+		if err != nil {
+			return core.ProviderResponse{}, err
+		}
+		defer resp.Body.Close()
+		return readResponsesStream(resp, onText, o.name)
+	}
 	resp, err := o.sendChat(ctx, req, true)
 	if err != nil {
 		return core.ProviderResponse{}, err

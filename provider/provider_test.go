@@ -730,3 +730,17 @@ func TestOutputCapFieldDependsOnHost(t *testing.T) {
 		t.Fatalf("local: %v", local)
 	}
 }
+
+// gpt-6-* 400 on chat/completions tools with reasoning on; only real
+// OpenAI is moved to /v1/responses.
+func TestOnlyOfficialOpenAIUsesResponses(t *testing.T) {
+	if !NewOpenAI("k", "https://api.openai.com/v1").usesResponses() {
+		t.Fatal("api.openai.com should use /responses")
+	}
+	if NewOpenAI("k", "http://localhost:11434/v1").usesResponses() {
+		t.Fatal("local server should keep chat/completions")
+	}
+	if NewOpenAI("k", "https://api.openai.com/v1").WithIdentity("omlx", "").usesResponses() {
+		t.Fatal("rebranded backend should keep chat/completions")
+	}
+}
