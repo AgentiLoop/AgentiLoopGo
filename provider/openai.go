@@ -23,10 +23,15 @@ import (
 
 const openAIDefaultBaseURL = "https://api.openai.com/v1"
 
+// openAIModelDocsURL: OpenAI's per-model doc pages (<id>.md), the only place
+// OpenAI publishes context windows and output caps — /models doesn't carry them.
+const openAIModelDocsURL = "https://developers.openai.com/api/docs/models"
+
 type OpenAI struct {
 	client       *http.Client
 	apiKey       string
 	baseURL      string
+	modelDocsURL string
 	name         string
 	defaultModel string
 }
@@ -36,6 +41,7 @@ func NewOpenAI(apiKey, baseURL string) *OpenAI {
 		client:       &http.Client{},
 		apiKey:       strings.TrimSpace(apiKey),
 		baseURL:      strings.TrimRight(baseURL, "/"),
+		modelDocsURL: openAIModelDocsURL,
 		name:         "openai",
 		defaultModel: "gpt-4o-mini",
 	}
@@ -350,12 +356,14 @@ func (o *OpenAI) ModelInfo(ctx context.Context, id string) (*core.ModelInfo, err
 	if info.MaxInputTokens == nil {
 		info.MaxInputTokens = o.ollamaContextLength(ctx, id)
 	}
-	if input, output, ok := openAILimits(id); ok {
-		if info.MaxInputTokens == nil {
-			info.MaxInputTokens = &input
-		}
-		if info.MaxTokens == nil {
-			info.MaxTokens = &output
+	if info.MaxInputTokens == nil || info.MaxTokens == nil {
+		if input, output, ok := o.openAIPublishedLimits(ctx, id); ok {
+			if info.MaxInputTokens == nil {
+				info.MaxInputTokens = &input
+			}
+			if info.MaxTokens == nil {
+				info.MaxTokens = &output
+			}
 		}
 	}
 	return info, nil
@@ -419,34 +427,97 @@ func (o *OpenAI) ollamaContextLength(ctx context.Context, id string) *uint64 {
 	return numCtx
 }
 
-// openAILimits returns the published (context window, max output) for
-// OpenAI's own models, which /models doesn't report. Longest matching prefix wins.
-func openAILimits(id string) (input uint64, output int, ok bool) {
-	table := []struct {
-		prefix string
-		input  uint64
-		output int
-	}{
-		{"gpt-5", 400_000, 128_000},
-		{"gpt-4.1", 1_047_576, 32_768},
-		{"gpt-4o", 128_000, 16_384},
-		{"gpt-4-turbo", 128_000, 4_096},
-		{"gpt-3.5-turbo", 16_385, 4_096},
-		{"o1-mini", 128_000, 65_536},
-		{"o1", 200_000, 100_000},
-		{"o3", 200_000, 100_000},
-		{"o4-mini", 200_000, 100_000},
-	}
-	best := -1
-	for i, row := range table {
-		if strings.HasPrefix(id, row.prefix) && (best < 0 || len(row.prefix) > len(table[best].prefix)) {
-			best = i
-		}
-	}
-	if best < 0 {
+// openAIPublishedLimits fetches OpenAI's published (context window, max
+// output) for one of its own models from the model's doc page. Dated
+// snapshots (o1-mini-2024-09-12) have no page of their own, so the date
+// suffix is dropped and the family page is used instead.
+func (o *OpenAI) openAIPublishedLimits(ctx context.Context, id string) (input uint64, output int, ok bool) {
+	if !looksLikeOpenAIModel(id) {
 		return 0, 0, false
 	}
-	return table[best].input, table[best].output, true
+	pages := []string{id}
+	if n := len(id) - 11; n > 0 && id[n] == '-' && isSnapshotDate(id[n+1:]) {
+		pages = append(pages, id[:n])
+	}
+	for _, page := range pages {
+		hr, err := http.NewRequestWithContext(ctx, http.MethodGet, o.modelDocsURL+"/"+page+".md", nil)
+		if err != nil {
+			return 0, 0, false
+		}
+		resp, err := o.client.Do(hr)
+		if err != nil {
+			return 0, 0, false
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			continue
+		}
+		if err != nil {
+			return 0, 0, false
+		}
+		return parseModelDoc(string(body))
+	}
+	return 0, 0, false
+}
+
+// parseModelDoc pulls (context window, max output) out of an OpenAI model doc
+// page (developers.openai.com/api/docs/models/<id>.md). The "Model details"
+// list carries lines like "- 400,000 context window",
+// "- Maximum input tokens: 272,000" and "- 128,000 max output tokens"; the
+// explicit input cap wins over the context window when both appear.
+func parseModelDoc(md string) (input uint64, output int, ok bool) {
+	number := func(label string) (uint64, bool) {
+		for _, line := range strings.Split(md, "\n") {
+			item, isItem := strings.CutPrefix(strings.TrimLeft(line, " \t"), "- ")
+			if !isItem || !strings.Contains(item, label) {
+				continue
+			}
+			for _, w := range strings.FieldsFunc(item, func(c rune) bool { return (c < '0' || c > '9') && c != ',' }) {
+				if strings.ContainsAny(w, "0123456789") {
+					n, err := strconv.ParseUint(strings.ReplaceAll(w, ",", ""), 10, 64)
+					return n, err == nil
+				}
+			}
+			return 0, false
+		}
+		return 0, false
+	}
+	input, ok = number("Maximum input tokens")
+	if !ok {
+		input, ok = number("context window")
+	}
+	if !ok {
+		return 0, 0, false
+	}
+	out, ok := number("max output tokens")
+	if !ok || out > uint64(^uint32(0)) {
+		return 0, 0, false
+	}
+	return input, int(out), true
+}
+
+// looksLikeOpenAIModel: gpt-*, chatgpt-*, o1…o4.
+func looksLikeOpenAIModel(id string) bool {
+	return strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "chatgpt-") ||
+		(len(id) > 1 && id[0] == 'o' && id[1] >= '0' && id[1] <= '9')
+}
+
+// isSnapshotDate: YYYY-MM-DD as used in OpenAI snapshot ids.
+func isSnapshotDate(s string) bool {
+	if len(s) != 10 {
+		return false
+	}
+	for i, c := range s {
+		if i == 4 || i == 7 {
+			if c != '-' {
+				return false
+			}
+		} else if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *OpenAI) Complete(ctx context.Context, req core.ProviderRequest) (core.ProviderResponse, error) {

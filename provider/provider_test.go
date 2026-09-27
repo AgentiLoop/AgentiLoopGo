@@ -357,15 +357,40 @@ func TestOpenAIModelInfoAsksOllamaForContextWindowCappedByNumCtx(t *testing.T) {
 	}
 }
 
-func TestOpenAIModelInfoFillsInPublishedLimits(t *testing.T) {
+// Trimmed from developers.openai.com/api/docs/models/{gpt-4o-mini,gpt-5}.md.
+const doc4oMini = "# GPT-4o mini\n\n## Model details\n\n- Default snapshot: `gpt-4o-mini-2024-07-18`\n- 128,000 context window\n- 16,384 max output tokens\n- Oct 01, 2023 knowledge cutoff\n"
+const docGPT5 = "# GPT-5\n\n- 400,000 context window\n- Maximum input tokens: 272,000\n- 128,000 max output tokens\n"
+
+func TestOpenAIModelInfoPullsPublishedLimitsFromModelDocs(t *testing.T) {
 	// No /v1 suffix, so no Ollama probe; /models carries no limits.
-	base := serveRoutes(t, map[string]string{"/models": `{"data":[{"id":"gpt-4o-mini"},{"id":"llama3"}]}`})
+	base := serveRoutes(t, map[string]string{
+		"/models":              `{"data":[{"id":"gpt-4o-mini"},{"id":"gpt-4o-mini-2024-07-18"},{"id":"gpt-5"},{"id":"llama3"}]}`,
+		"/docs/gpt-4o-mini.md": doc4oMini,
+		"/docs/gpt-5.md":       docGPT5,
+	})
 	p := NewOpenAI("k", base)
+	p.modelDocsURL = base + "/docs"
 	m, err := p.ModelInfo(context.Background(), "gpt-4o-mini")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if in, out := limits(m); in != 128_000 || out != 16_384 {
+		t.Fatal(in, out)
+	}
+	// Dated snapshot has no page of its own → family page.
+	m, err = p.ModelInfo(context.Background(), "gpt-4o-mini-2024-07-18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 128_000 || out != 16_384 {
+		t.Fatal(in, out)
+	}
+	// Explicit input cap beats the context window.
+	m, err = p.ModelInfo(context.Background(), "gpt-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 272_000 || out != 128_000 {
 		t.Fatal(in, out)
 	}
 	m, err = p.ModelInfo(context.Background(), "llama3")
@@ -374,22 +399,33 @@ func TestOpenAIModelInfoFillsInPublishedLimits(t *testing.T) {
 	}
 }
 
-func TestOpenAILimitsPreferLongestPrefix(t *testing.T) {
-	cases := []struct {
-		id  string
-		in  uint64
-		out int
-		ok  bool
-	}{
-		{"o1-mini-2024-09-12", 128_000, 65_536, true},
-		{"o1-preview", 200_000, 100_000, true},
-		{"gpt-4.1-nano", 1_047_576, 32_768, true},
-		{"gpt-oss:120b", 0, 0, false},
+func TestModelDocParsingIgnoresProseAndNeedsBothLimits(t *testing.T) {
+	// gpt-4.1-nano's blurb mentions "1M token context window" in prose; only the details list counts.
+	md := "GPT-4.1 nano: 1M token context window, and low latency.\n\n- 1,047,576 context window\n- 32,768 max output tokens\n"
+	if in, out, ok := parseModelDoc(md); !ok || in != 1_047_576 || out != 32_768 {
+		t.Fatal(in, out, ok)
 	}
-	for _, c := range cases {
-		if in, out, ok := openAILimits(c.id); in != c.in || out != c.out || ok != c.ok {
-			t.Fatal(c.id, in, out, ok)
+	if _, _, ok := parseModelDoc("- 128,000 context window\n"); ok {
+		t.Fatal("output missing should fail")
+	}
+	if _, _, ok := parseModelDoc("## Model details\n"); ok {
+		t.Fatal("empty should fail")
+	}
+}
+
+func TestOnlyOpenAILookingIDsAreLookedUp(t *testing.T) {
+	for _, id := range []string{"gpt-4o", "gpt-5.2", "chatgpt-4o-latest", "o1-mini", "o3", "o4-mini-2025-04-16"} {
+		if !looksLikeOpenAIModel(id) {
+			t.Fatal(id)
 		}
+	}
+	for _, id := range []string{"llama3", "qwen3:4b", "olmo-2", "claude-3", "o"} {
+		if looksLikeOpenAIModel(id) {
+			t.Fatal(id)
+		}
+	}
+	if !isSnapshotDate("2024-09-12") || isSnapshotDate("preview") {
+		t.Fatal("snapshot date")
 	}
 }
 
