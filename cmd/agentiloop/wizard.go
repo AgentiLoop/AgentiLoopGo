@@ -122,15 +122,19 @@ type shellKind int
 const (
 	shellPosix shellKind = iota
 	shellFish
+	shellPowerShell
 )
 
 // shellProfile is the profile the wizard may append to: AGENTILOOP_SHELL_PROFILE,
-// else derived from $SHELL. "" on shells we don't know (and on Windows), where
-// only ~/.agentiloop/env is offered.
+// else derived from $SHELL, else (no $SHELL, i.e. Windows) the PowerShell profile.
+// "" on shells we don't know, where only ~/.agentiloop/env is offered.
 func shellProfile() (string, shellKind) {
 	if p, ok := os.LookupEnv("AGENTILOOP_SHELL_PROFILE"); ok {
-		if strings.HasSuffix(p, ".fish") {
+		switch strings.ToLower(filepath.Ext(p)) {
+		case ".fish":
 			return p, shellFish
+		case ".ps1":
+			return p, shellPowerShell
 		}
 		return p, shellPosix
 	}
@@ -138,7 +142,13 @@ func shellProfile() (string, shellKind) {
 	if err != nil {
 		return "", shellPosix
 	}
-	return profileFor(os.Getenv("SHELL"), home, runtime.GOOS == "darwin")
+	if sh, ok := os.LookupEnv("SHELL"); ok {
+		return profileFor(sh, home, runtime.GOOS == "darwin")
+	}
+	if runtime.GOOS == "windows" {
+		return powershellProfile(home), shellPowerShell
+	}
+	return "", shellPosix
 }
 
 func profileFor(shell, home string, macos bool) (string, shellKind) {
@@ -152,15 +162,40 @@ func profileFor(shell, home string, macos bool) (string, shellKind) {
 		return filepath.Join(home, ".bashrc"), shellPosix
 	case "fish":
 		return filepath.Join(home, ".config", "fish", "config.fish"), shellFish
+	case "pwsh":
+		return filepath.Join(home, ".config", "powershell", "profile.ps1"), shellPowerShell
 	}
 	return "", shellPosix
 }
 
+// powershellProfile is Windows' CurrentUserAllHosts profile: PowerShell 7's folder
+// if it exists, else Windows PowerShell 5's.
+func powershellProfile(home string) string {
+	dir := filepath.Join(home, "Documents", "PowerShell")
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		dir = filepath.Join(home, "Documents", "WindowsPowerShell")
+	}
+	return filepath.Join(dir, "profile.ps1")
+}
+
 func exportLine(kind shellKind, key, value string) string {
-	if kind == shellFish {
+	switch kind {
+	case shellFish:
 		return fmt.Sprintf("set -gx %s \"%s\"", key, value)
+	case shellPowerShell:
+		return fmt.Sprintf("$env:%s = \"%s\"", key, value)
 	}
 	return fmt.Sprintf("export %s=\"%s\"", key, value)
+}
+
+func pathLine(kind shellKind, dir string) string {
+	switch kind {
+	case shellFish:
+		return "fish_add_path " + dir
+	case shellPowerShell:
+		return fmt.Sprintf("$env:PATH = \"%s\" + [IO.Path]::PathSeparator + $env:PATH", dir)
+	}
+	return fmt.Sprintf("export PATH=\"%s:$PATH\"", dir)
 }
 
 // writeBlock replaces (or appends) the marked agentiloop block in path with lines.
@@ -210,8 +245,12 @@ func keychainStore(service, value string) error {
 
 func keychainLine(kind shellKind, key string) string {
 	lookup := fmt.Sprintf("security find-generic-password -a \"$USER\" -s %s -w 2>/dev/null", key)
-	if kind == shellFish {
+	switch kind {
+	case shellFish:
 		return fmt.Sprintf("set -gx %s (%s)", key, lookup)
+	case shellPowerShell:
+		ps := strings.NewReplacer(`"$USER"`, "$env:USER", "2>/dev/null", "2>$null").Replace(lookup)
+		return fmt.Sprintf("$env:%s = (%s)", key, ps)
 	}
 	return fmt.Sprintf("export %s=\"$(%s)\"", key, lookup)
 }
@@ -444,11 +483,7 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 			return err
 		}
 		if ok {
-			if kind == shellFish {
-				block = append(block, "fish_add_path "+dir)
-			} else {
-				block = append(block, fmt.Sprintf("export PATH=\"%s:$PATH\"", dir))
-			}
+			block = append(block, pathLine(kind, dir))
 		}
 	}
 	if len(block) > 0 {

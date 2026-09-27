@@ -24,7 +24,13 @@ func TestProfileForShellAndOS(t *testing.T) {
 	if p, k := profileFor("/opt/fish", "/h", false); p != "/h/.config/fish/config.fish" || k != shellFish {
 		t.Fatal(p, k)
 	}
+	if p, k := profileFor("/usr/bin/pwsh", "/h", false); p != "/h/.config/powershell/profile.ps1" || k != shellPowerShell {
+		t.Fatal(p, k)
+	}
 	if p, _ := profileFor("/bin/tcsh", "/h", false); p != "" {
+		t.Fatal(p)
+	}
+	if p := powershellProfile(t.TempDir()); filepath.Base(filepath.Dir(p)) != "WindowsPowerShell" || filepath.Base(p) != "profile.ps1" {
 		t.Fatal(p)
 	}
 }
@@ -35,6 +41,21 @@ func TestExportAndKeychainLines(t *testing.T) {
 	}
 	if !strings.HasPrefix(keychainLine(shellPosix, "K"), `export K="$(security find-generic-password`) {
 		t.Fatal(keychainLine(shellPosix, "K"))
+	}
+	if exportLine(shellPowerShell, "A", "b") != `$env:A = "b"` {
+		t.Fatal(exportLine(shellPowerShell, "A", "b"))
+	}
+	if got := pathLine(shellPowerShell, `C:\bin`); got != `$env:PATH = "C:\bin" + [IO.Path]::PathSeparator + $env:PATH` {
+		t.Fatal(got)
+	}
+	if got := keychainLine(shellPowerShell, "K"); got != `$env:K = (security find-generic-password -a $env:USER -s K -w 2>$null)` {
+		t.Fatal(got)
+	}
+	// Everything the wizard writes must be recognised by --reset's stray-line scan when unmarked.
+	for _, l := range []string{exportLine(shellPowerShell, "OPENAI_API_KEY", "x"), exportLine(shellFish, "OMLX_PORT", "1")} {
+		if len(strayLines(l)) != 1 {
+			t.Fatal(l)
+		}
 	}
 }
 

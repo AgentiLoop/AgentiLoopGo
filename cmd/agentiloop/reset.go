@@ -38,7 +38,7 @@ const (
 
 // candidateProfiles returns the shell profiles worth looking at:
 // AGENTILOOP_SHELL_PROFILE alone when set (so tests never touch the real ones),
-// else the usual zsh/bash/fish files that exist.
+// else the usual zsh/bash/fish/PowerShell files that exist.
 func candidateProfiles() []string {
 	if p, ok := os.LookupEnv("AGENTILOOP_SHELL_PROFILE"); ok {
 		return []string{p}
@@ -48,8 +48,14 @@ func candidateProfiles() []string {
 		return nil
 	}
 	var out []string
-	for _, f := range []string{".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile", ".config/fish/config.fish"} {
-		p := filepath.Join(home, f)
+	for _, f := range []string{
+		".zshrc", ".zprofile", ".bashrc", ".bash_profile", ".profile", ".config/fish/config.fish",
+		// PowerShell: pwsh on Unix, then PowerShell 7 and Windows PowerShell 5 on Windows.
+		".config/powershell/profile.ps1", ".config/powershell/Microsoft.PowerShell_profile.ps1",
+		"Documents/PowerShell/profile.ps1", "Documents/PowerShell/Microsoft.PowerShell_profile.ps1",
+		"Documents/WindowsPowerShell/profile.ps1", "Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1",
+	} {
+		p := filepath.Join(home, filepath.FromSlash(f))
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			out = append(out, p)
 		}
