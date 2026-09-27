@@ -4,7 +4,7 @@
 
 🌐 [English](README.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [中文 (简体)](README_zh.md) · [Русский](README_ru.md) · [한국어](README_ko.md) · [日本語](README_ja.md)
 
-### 🎉 We just shipped release v0.0.2 for Mac, Windows and Linux!
+### 🎉 We just shipped release v0.0.3 for Mac, Windows and Linux!
 
 ---
 
@@ -55,7 +55,7 @@ Not sure? On Mac or Linux, run `uname -m`. `arm64` or `aarch64` means **arm64**,
 **macOS and Linux.** Open Terminal and paste these lines. This example uses the Apple Silicon file, so change `macos-arm64` in the first three lines if yours is different:
 
 ```sh
-curl -LO https://github.com/AgentiLoop/AgentiLoopGo/releases/download/v0.0.2/agentiloop-macos-arm64.tar.gz
+curl -LO https://github.com/AgentiLoop/AgentiLoopGo/releases/download/v0.0.3/agentiloop-macos-arm64.tar.gz
 tar xzf agentiloop-macos-arm64.tar.gz
 mkdir -p ~/.local/bin && mv agentiloop-macos-arm64/agentiloop ~/.local/bin/
 ```
@@ -65,7 +65,7 @@ That puts the program in `~/.local/bin`, a folder in your home directory. Step 3
 **Windows.** Open **PowerShell** (Start menu → type "PowerShell") and paste:
 
 ```powershell
-Invoke-WebRequest https://github.com/AgentiLoop/AgentiLoopGo/releases/download/v0.0.2/agentiloop-windows-x86_64.zip -OutFile agentiloop.zip
+Invoke-WebRequest https://github.com/AgentiLoop/AgentiLoopGo/releases/download/v0.0.3/agentiloop-windows-x86_64.zip -OutFile agentiloop.zip
 Expand-Archive agentiloop.zip -DestinationPath $HOME\agentiloop -Force
 $p = [Environment]::GetEnvironmentVariable("Path", "User")
 [Environment]::SetEnvironmentVariable("Path", "$p;$HOME\agentiloop\agentiloop-windows-x86_64", "User")
@@ -153,7 +153,7 @@ Then **close PowerShell and open a new window**. `setx` doesn't affect the windo
 agentiloop --version
 ```
 
-You should see `agentiloop 0.0.2`. Now check that the key is loaded:
+You should see `agentiloop 0.0.3`. Now check that the key is loaded:
 
 ```sh
 echo $ANTHROPIC_API_KEY | cut -c1-10    # macOS / Linux: should print sk-ant-...
