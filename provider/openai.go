@@ -233,7 +233,10 @@ func (o *OpenAI) newRequest(ctx context.Context, method, path string, body []byt
 	return hr, nil
 }
 
-func (o *OpenAI) sendChat(ctx context.Context, req core.ProviderRequest, stream bool) (*http.Response, error) {
+// wireRequest builds the chat/completions body. api.openai.com wants
+// max_completion_tokens (its newer models reject max_tokens); every other
+// compatible server gets max_tokens.
+func (o *OpenAI) wireRequest(req core.ProviderRequest, stream bool) map[string]any {
 	type fn struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -243,10 +246,14 @@ func (o *OpenAI) sendChat(ctx context.Context, req core.ProviderRequest, stream 
 		Type     string `json:"type"`
 		Function fn     `json:"function"`
 	}
+	capField := "max_tokens"
+	if strings.HasPrefix(o.baseURL, "https://api.openai.com") {
+		capField = "max_completion_tokens"
+	}
 	body := map[string]any{
-		"model":      req.Model,
-		"max_tokens": req.MaxTokens,
-		"messages":   toWireMessages(req.System, req.Messages),
+		"model":    req.Model,
+		capField:   req.MaxTokens,
+		"messages": toWireMessages(req.System, req.Messages),
 	}
 	if len(req.Tools) > 0 {
 		var tools []tool
@@ -259,7 +266,11 @@ func (o *OpenAI) sendChat(ctx context.Context, req core.ProviderRequest, stream 
 		body["stream"] = true
 		body["stream_options"] = map[string]bool{"include_usage": true}
 	}
-	data, err := json.Marshal(body)
+	return body
+}
+
+func (o *OpenAI) sendChat(ctx context.Context, req core.ProviderRequest, stream bool) (*http.Response, error) {
+	data, err := json.Marshal(o.wireRequest(req, stream))
 	if err != nil {
 		return nil, err
 	}

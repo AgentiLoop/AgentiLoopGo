@@ -704,3 +704,27 @@ func TestFromEnvPicksProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// api.openai.com 400s on max_tokens for gpt-5 / o-series ("Use
+// 'max_completion_tokens' instead"); other servers keep max_tokens.
+func TestOutputCapFieldDependsOnHost(t *testing.T) {
+	body := func(base string) map[string]any {
+		data, err := json.Marshal(NewOpenAI("k", base).wireRequest(req(), false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	official := body(openAIDefaultBaseURL)
+	if _, has := official["max_tokens"]; has || official["max_completion_tokens"] != float64(16) {
+		t.Fatalf("official: %v", official)
+	}
+	local := body("http://localhost:11434/v1")
+	if _, has := local["max_completion_tokens"]; has || local["max_tokens"] != float64(16) {
+		t.Fatalf("local: %v", local)
+	}
+}
