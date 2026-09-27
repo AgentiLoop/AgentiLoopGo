@@ -30,9 +30,6 @@ func TestProfileForShellAndOS(t *testing.T) {
 	if p, _ := profileFor("/bin/tcsh", "/h", false); p != "" {
 		t.Fatal(p)
 	}
-	if p := powershellProfile(t.TempDir()); filepath.Base(filepath.Dir(p)) != "WindowsPowerShell" || filepath.Base(p) != "profile.ps1" {
-		t.Fatal(p)
-	}
 }
 
 func TestExportAndKeychainLines(t *testing.T) {
@@ -42,10 +39,10 @@ func TestExportAndKeychainLines(t *testing.T) {
 	if !strings.HasPrefix(keychainLine(shellPosix, "K"), `export K="$(security find-generic-password`) {
 		t.Fatal(keychainLine(shellPosix, "K"))
 	}
-	if exportLine(shellPowerShell, "A", "b") != `$env:A = "b"` {
-		t.Fatal(exportLine(shellPowerShell, "A", "b"))
+	if exportLine(shellPowerShell, "A", "b'$c") != `$env:A = 'b''$c'` {
+		t.Fatal(exportLine(shellPowerShell, "A", "b'$c"))
 	}
-	if got := pathLine(shellPowerShell, `C:\bin`); got != `$env:PATH = "C:\bin" + [IO.Path]::PathSeparator + $env:PATH` {
+	if got := pathLine(shellPowerShell, `C:\bin`); got != `$env:PATH = 'C:\bin' + [IO.Path]::PathSeparator + $env:PATH` {
 		t.Fatal(got)
 	}
 	if got := keychainLine(shellPowerShell, "K"); got != `$env:K = (security find-generic-password -a $env:USER -s K -w 2>$null)` {

@@ -150,8 +150,37 @@ func commentOut(text string, lines []int) string {
 }
 
 func unsetHint() string {
+	if runtime.GOOS == "windows" {
+		return "Variables already set in this window stay until you open a new one, or run:\n  Remove-Item Env:" +
+			strings.Join(credentialVars, ", Env:") + "\nthen run `agentiloop` to see the first-run wizard."
+	}
 	return "Variables already exported in this terminal stay until you open a new one, or run:\n  unset " +
 		strings.Join(credentialVars, " ") + "\nthen run `agentiloop` to see the first-run wizard."
+}
+
+// userEnvPresent: on Windows, which credential variables are persisted as user
+// environment variables (HKCU\Environment, as written by setx). Empty elsewhere.
+func userEnvPresent() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	var out []string
+	for _, k := range credentialVars {
+		if exec.Command("reg", "query", `HKCU\Environment`, "/v", k).Run() == nil {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// userEnvDelete removes a Windows user environment variable and broadcasts the change (what setx cannot do).
+func userEnvDelete(key string) error {
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		fmt.Sprintf("[Environment]::SetEnvironmentVariable('%s', $null, 'User')", key))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("could not remove user environment variable %s: %w", key, err)
+	}
+	return nil
 }
 
 func deleteKeychainItem(service string) error {
@@ -214,8 +243,16 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 		}
 	}
 	keychain := saved.Setup.Keychain
+	userEnv := append([]string(nil), saved.Setup.UserEnv...)
+	// Windows: credential variables persisted by hand with setx (the README's path).
+	var strayEnv []string
+	for _, k := range userEnvPresent() {
+		if !slices.Contains(userEnv, k) {
+			strayEnv = append(strayEnv, k)
+		}
+	}
 
-	if !homeExists && len(blocks) == 0 && len(found) == 0 && len(keychain) == 0 {
+	if !homeExists && len(blocks) == 0 && len(found) == 0 && len(keychain) == 0 && len(userEnv) == 0 && len(strayEnv) == 0 {
 		fmt.Fprintf(out, "Nothing to reset: no %s and no agentiloop lines in your shell profile.\n%s\n", homeShown, unsetHint())
 		return nil
 	}
@@ -229,6 +266,12 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 	}
 	for _, k := range keychain {
 		fmt.Fprintf(out, "  • delete the macOS Keychain item `%s`\n", k)
+	}
+	for _, k := range userEnv {
+		fmt.Fprintf(out, "  • remove the Windows user environment variable `%s` (set by the wizard)\n", k)
+	}
+	if len(strayEnv) > 0 {
+		fmt.Fprintf(out, "  • found user environment variables set by hand (`setx`), not removed unless you say so: %s\n", strings.Join(strayEnv, ", "))
 	}
 	for _, f := range found {
 		fmt.Fprintf(out, "  • found hand-written lines in %s (not deleted, see below):\n", f.path)
@@ -256,6 +299,19 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 				return err
 			}
 			comment = strings.EqualFold(ans, "y")
+		}
+	}
+	if len(strayEnv) > 0 {
+		remove := yes
+		if !yes {
+			ans, err := ask("Remove those user environment variables too? [y/N] ")
+			if err != nil {
+				return err
+			}
+			remove = strings.EqualFold(ans, "y")
+		}
+		if remove {
+			userEnv = append(userEnv, strayEnv...)
 		}
 	}
 
@@ -291,6 +347,13 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 			fmt.Fprintf(out, "warning: %v\n", err)
 		} else {
 			fmt.Fprintf(out, "deleted Keychain item %s\n", k)
+		}
+	}
+	for _, k := range userEnv {
+		if err := userEnvDelete(k); err != nil {
+			fmt.Fprintf(out, "warning: %v\n", err)
+		} else {
+			fmt.Fprintf(out, "removed user environment variable %s\n", k)
 		}
 	}
 	if homeExists {

@@ -126,8 +126,8 @@ const (
 )
 
 // shellProfile is the profile the wizard may append to: AGENTILOOP_SHELL_PROFILE,
-// else derived from $SHELL, else (no $SHELL, i.e. Windows) the PowerShell profile.
-// "" on shells we don't know, where only ~/.agentiloop/env is offered.
+// else derived from $SHELL. "" on shells we don't know and on Windows (no $SHELL),
+// where a user environment variable is offered instead (see windowsUserEnv).
 func shellProfile() (string, shellKind) {
 	if p, ok := os.LookupEnv("AGENTILOOP_SHELL_PROFILE"); ok {
 		switch strings.ToLower(filepath.Ext(p)) {
@@ -144,9 +144,6 @@ func shellProfile() (string, shellKind) {
 	}
 	if sh, ok := os.LookupEnv("SHELL"); ok {
 		return profileFor(sh, home, runtime.GOOS == "darwin")
-	}
-	if runtime.GOOS == "windows" {
-		return powershellProfile(home), shellPowerShell
 	}
 	return "", shellPosix
 }
@@ -168,14 +165,22 @@ func profileFor(shell, home string, macos bool) (string, shellKind) {
 	return "", shellPosix
 }
 
-// powershellProfile is Windows' CurrentUserAllHosts profile: PowerShell 7's folder
-// if it exists, else Windows PowerShell 5's.
-func powershellProfile(home string) string {
-	dir := filepath.Join(home, "Documents", "PowerShell")
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		dir = filepath.Join(home, "Documents", "WindowsPowerShell")
+// windowsUserEnv: Windows without a Unix shell. Windows PowerShell 5 ships with
+// ExecutionPolicy Restricted, so a profile.ps1 would silently never run, and
+// ~\Documents may live in OneDrive. Persist as a *user environment variable*
+// instead (the README's setx step); every new terminal window sees it.
+func windowsUserEnv() bool {
+	_, hasShell := os.LookupEnv("SHELL")
+	_, hasProfile := os.LookupEnv("AGENTILOOP_SHELL_PROFILE")
+	return runtime.GOOS == "windows" && !hasShell && !hasProfile
+}
+
+// userEnvSet runs `setx KEY value`: writes HKCU\Environment and broadcasts the change to Explorer.
+func userEnvSet(key, value string) error {
+	if err := exec.Command("setx", key, value).Run(); err != nil {
+		return fmt.Errorf("setx %s failed: %w", key, err)
 	}
-	return filepath.Join(dir, "profile.ps1")
+	return nil
 }
 
 func exportLine(kind shellKind, key, value string) string {
@@ -183,7 +188,8 @@ func exportLine(kind shellKind, key, value string) string {
 	case shellFish:
 		return fmt.Sprintf("set -gx %s \"%s\"", key, value)
 	case shellPowerShell:
-		return fmt.Sprintf("$env:%s = \"%s\"", key, value)
+		// Single quotes: PowerShell does not expand `$` or backticks inside them.
+		return fmt.Sprintf("$env:%s = '%s'", key, strings.ReplaceAll(value, "'", "''"))
 	}
 	return fmt.Sprintf("export %s=\"%s\"", key, value)
 }
@@ -193,7 +199,7 @@ func pathLine(kind shellKind, dir string) string {
 	case shellFish:
 		return "fish_add_path " + dir
 	case shellPowerShell:
-		return fmt.Sprintf("$env:PATH = \"%s\" + [IO.Path]::PathSeparator + $env:PATH", dir)
+		return fmt.Sprintf("$env:PATH = '%s' + [IO.Path]::PathSeparator + $env:PATH", dir)
 	}
 	return fmt.Sprintf("export PATH=\"%s:$PATH\"", dir)
 }
@@ -226,7 +232,8 @@ func exeDirMissingFromPath() string {
 	}
 	dir := filepath.Dir(exe)
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if d == dir {
+		// Windows paths compare case-insensitively.
+		if d == dir || (runtime.GOOS == "windows" && strings.EqualFold(d, dir)) {
 			return ""
 		}
 	}
@@ -424,8 +431,9 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 
 	// Where the credential lives. ~/.agentiloop/env is always the baseline unless the Keychain holds it.
 	profile, kind := shellProfile()
+	userEnv := windowsUserEnv()
 	now := time.Now().UTC().Format(time.RFC3339)
-	setup := Setup{CompletedAt: &now, Keychain: []string{}}
+	setup := Setup{CompletedAt: &now, Keychain: []string{}, UserEnv: []string{}}
 	var block []string
 	if len(c.vars) > 0 {
 		fmt.Fprintln(out)
@@ -439,6 +447,9 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 				n = 3
 				fmt.Fprintf(out, "  3  macOS Keychain, with a line in %s that reads it (nothing stored in plain text)\n", profile)
 			}
+		} else if userEnv {
+			n = 2
+			fmt.Fprintln(out, "  2  Also save it as a Windows user environment variable (setx), so every new terminal window sees it")
 		}
 		choice, err := w.choose("Save to", n, 1)
 		if err != nil {
@@ -463,7 +474,15 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 				return err
 			}
 			for _, kv := range c.vars {
-				block = append(block, exportLine(kind, kv[0], kv[1]))
+				if userEnv {
+					if err := userEnvSet(kv[0], kv[1]); err != nil {
+						return err
+					}
+					setup.UserEnv = append(setup.UserEnv, kv[0])
+					fmt.Fprintf(out, "saved %s as a user environment variable (new terminal windows will see it)\n", kv[0])
+				} else {
+					block = append(block, exportLine(kind, kv[0], kv[1]))
+				}
 			}
 		default:
 			p, err := saveEnvFile(c.vars)
@@ -474,16 +493,24 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 		}
 	}
 
-	// PATH: offer once, only when a profile is available.
-	if dir := exeDirMissingFromPath(); dir != "" && profile != "" {
-		fmt.Fprintln(out)
-		fmt.Fprintf(out, "`%s` is not on your PATH, so `agentiloop` only works with its full path.\n", dir)
-		ok, err := w.askYes(fmt.Sprintf("Add it to PATH in %s?", profile), true)
-		if err != nil {
-			return err
-		}
-		if ok {
-			block = append(block, pathLine(kind, dir))
+	// PATH: offer once, only when a profile is available. On Windows the README's
+	// install step already adds the folder to the user PATH, so just point there.
+	if dir := exeDirMissingFromPath(); dir != "" {
+		switch {
+		case profile != "":
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "`%s` is not on your PATH, so `agentiloop` only works with its full path.\n", dir)
+			ok, err := w.askYes(fmt.Sprintf("Add it to PATH in %s?", profile), true)
+			if err != nil {
+				return err
+			}
+			if ok {
+				block = append(block, pathLine(kind, dir))
+			}
+		case userEnv:
+			fmt.Fprintln(out)
+			fmt.Fprintf(out, "`%s` is not on your PATH. To run `agentiloop` from any folder, add it once in PowerShell:\n"+
+				"  [Environment]::SetEnvironmentVariable(\"Path\", [Environment]::GetEnvironmentVariable(\"Path\", \"User\") + \";%s\", \"User\")\n", dir, dir)
 		}
 	}
 	if len(block) > 0 {

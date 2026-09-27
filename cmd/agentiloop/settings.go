@@ -92,6 +92,8 @@ type Setup struct {
 	Profile *string `json:"profile"`
 	// Keychain lists the macOS Keychain items (service names) the wizard created.
 	Keychain []string `json:"keychain"`
+	// UserEnv lists the Windows user environment variables (setx) the wizard created.
+	UserEnv []string `json:"user_env"`
 }
 
 // LastLaunch is the remembered launch options. --yes and --no-mcp are deliberately never remembered.
@@ -186,6 +188,9 @@ func saveSettings(s *Settings) error {
 	}
 	if s.Setup.Keychain == nil {
 		s.Setup.Keychain = []string{} // Rust reads `null` as malformed; keep it `[]`
+	}
+	if s.Setup.UserEnv == nil {
+		s.Setup.UserEnv = []string{}
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
