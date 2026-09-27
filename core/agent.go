@@ -193,11 +193,15 @@ func (a *Agent) Compact(ctx context.Context) (*EvCompacted, error) {
 	if len(a.History) == 0 {
 		return nil, nil
 	}
+	limits := a.ResolveLimits(ctx)
 	req := ProviderRequest{
 		Model:     a.config.Model,
 		System:    compactSystemPrompt,
 		Messages:  []Message{UserText("Summarize the following transcript.\n\n<transcript>\n" + Transcript(a.History) + "\n</transcript>")},
 		MaxTokens: 4096,
+	}
+	if err := budgetRequest(&req, limits); err != nil {
+		return nil, err
 	}
 	resp, err := a.provider.Complete(ctx, req)
 	if err != nil {
@@ -224,6 +228,28 @@ func (a *Agent) toolSpecs() []ToolSpec {
 	return specs
 }
 
+// budgetRequest reserves input space before applying the model's output ceiling.
+// UTF-8 bytes plus framing headroom are a conservative estimate, not a tokenizer.
+func budgetRequest(req *ProviderRequest, limits ModelLimits) error {
+	req.MaxTokens = min(req.MaxTokens, limits.MaxTokens)
+	if limits.ContextWindow == nil {
+		return nil
+	}
+	window := *limits.ContextWindow
+	body, err := json.Marshal([]any{req.System, req.Messages, req.Tools})
+	if err != nil {
+		return err
+	}
+	input := uint64(len(body)) + 256 + 16*uint64(len(req.Messages)+len(req.Tools))
+	if input >= window {
+		return fmt.Errorf("request input exceeds the estimated context budget (%d of %d tokens); compact or clear the conversation, reduce the prompt or tools, or use a larger-context model", input, window)
+	}
+	if available := window - input; uint64(req.MaxTokens) > available {
+		req.MaxTokens = int(available)
+	}
+	return nil
+}
+
 // Run is the core agentic loop: send → if tool_use, execute tools, append results, repeat.
 func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) error {
 	limits := a.ResolveLimits(ctx)
@@ -245,6 +271,9 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			Messages:  append([]Message(nil), a.History...),
 			Tools:     a.toolSpecs(),
 			MaxTokens: limits.MaxTokens,
+		}
+		if err := budgetRequest(&req, limits); err != nil {
+			return err
 		}
 		started := time.Now()
 		var firstToken *uint64

@@ -24,7 +24,11 @@ func (p *scripted) DefaultModel() string { return "mock" }
 // ListModels reports limits for `mock` only; other ids are unknown to the catalog.
 func (p *scripted) ListModels(context.Context) ([]ModelInfo, error) {
 	win, out := uint64(1_000_000), 128_000
-	return []ModelInfo{{ID: "mock", DisplayName: "Mock", MaxInputTokens: &win, MaxTokens: &out}}, nil
+	smallWin, smallOut := uint64(8192), 8192 // gpt-4: output cap equals the whole window
+	return []ModelInfo{
+		{ID: "mock", DisplayName: "Mock", MaxInputTokens: &win, MaxTokens: &out},
+		{ID: "small", DisplayName: "Small", MaxInputTokens: &smallWin, MaxTokens: &smallOut},
+	}, nil
 }
 func (p *scripted) Complete(_ context.Context, req ProviderRequest) (ProviderResponse, error) {
 	p.mu.Lock()
