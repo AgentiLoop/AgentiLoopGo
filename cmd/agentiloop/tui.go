@@ -221,11 +221,45 @@ type (
 	actSubmit  struct{ Line string }
 	actQuit    struct{}
 	actOpenURL struct{ URL string }
+	// actCopy: a mouse drag ended; copy the selection from the screen.
+	actCopy struct{}
 )
 
 func (actSubmit) isAction()  {}
 func (actQuit) isAction()    {}
 func (actOpenURL) isAction() {}
+func (actCopy) isAction()    {}
+
+// area is a pane of the last frame a drag may select within.
+type area struct{ x, y, w, h int }
+
+func (r area) contains(x, y int) bool { return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h }
+
+// selection is a mouse text selection in screen cells, confined to the pane it started in.
+type selection struct {
+	area           area
+	ax, ay, hx, hy int
+}
+
+// rows: selected cells as {row, first col, last col}, in reading order.
+func (sel selection) rows() [][3]int {
+	x0, y0, x1, y1 := sel.ax, sel.ay, sel.hx, sel.hy
+	if y1 < y0 || (y1 == y0 && x1 < x0) {
+		x0, y0, x1, y1 = x1, y1, x0, y0
+	}
+	var out [][3]int
+	for y := y0; y <= y1; y++ {
+		a, b := sel.area.x, sel.area.x+sel.area.w-1
+		if y == y0 {
+			a = x0
+		}
+		if y == y1 {
+			b = x1
+		}
+		out = append(out, [3]int{y, a, b})
+	}
+	return out
+}
 
 // App is the UI state; backend-agnostic (any tcell.Screen) so tests can drive it.
 type App struct {
@@ -254,7 +288,12 @@ type App struct {
 	pendingPaths map[string]string
 	// linkHits: screen cells occupied by links in the last frame, for click handling.
 	linkHits []linkHit
-	now      func() time.Time
+	// selAreas: panes of the last frame a drag may select within (transcript, files, input).
+	selAreas []area
+	// sel: current (or last) mouse selection; highlighted until the next click or key.
+	sel       *selection
+	mouseDown bool
+	now       func() time.Time
 	// files changed this session (total diff each), in first-touched order.
 	files []fileDiff
 	// filesSel is the most recently changed file; the pane starts there when
@@ -444,6 +483,7 @@ func firstLines(s string, n int) []string {
 }
 
 func (a *App) HandleKey(ev *tcell.EventKey) Action {
+	a.sel = nil
 	if req := a.modal; req != nil {
 		var ans Answer
 		switch {
@@ -578,23 +618,70 @@ func (a *App) recall(dir int) {
 	a.cursor = len(a.input)
 }
 
-// HandleMouse: the wheel scrolls the transcript; a left click on a link opens it.
+// HandleMouse: the wheel scrolls the transcript; a left click on a link opens
+// it; a left drag selects text and copies it on release (mouse reporting hides
+// the terminal's own selection, so the TUI provides one).
 func (a *App) HandleMouse(ev *tcell.EventMouse) Action {
 	b := ev.Buttons()
 	x, y := ev.Position()
 	switch {
 	case b&tcell.WheelUp != 0:
+		a.sel = nil
 		a.scroll += 3
 	case b&tcell.WheelDown != 0:
+		a.sel = nil
 		a.scroll = max(a.scroll-3, 0)
+	case b&tcell.Button1 != 0 && a.mouseDown:
+		if sel := a.sel; sel != nil {
+			r := sel.area
+			sel.hx, sel.hy = min(max(x, r.x), r.x+r.w-1), min(max(y, r.y), r.y+r.h-1)
+		}
 	case b&tcell.Button1 != 0 && a.modal == nil:
+		a.sel = nil
 		for _, h := range a.linkHits {
 			if h.y == y && x >= h.x0 && x < h.x1 {
 				return actOpenURL{h.url}
 			}
 		}
+		a.mouseDown = true
+		for _, r := range a.selAreas {
+			if r.contains(x, y) {
+				a.sel = &selection{r, x, y, x, y}
+				break
+			}
+		}
+	case b == tcell.ButtonNone && a.mouseDown:
+		a.mouseDown = false
+		if sel := a.sel; sel != nil && (sel.ax != sel.hx || sel.ay != sel.hy) {
+			return actCopy{}
+		}
+		a.sel = nil
 	}
 	return nil
+}
+
+// SelectedText is the text under the current selection on s (the frame on
+// screen), trailing blanks trimmed per row; "" when nothing is selected.
+func (a *App) SelectedText(s tcell.Screen) string {
+	if a.sel == nil {
+		return ""
+	}
+	var rows []string
+	for _, r := range a.sel.rows() {
+		var sb strings.Builder
+		for x := r[1]; x <= r[2]; x++ {
+			mainc, combc, _, w := s.GetContent(x, r[0])
+			if mainc == 0 {
+				mainc = ' '
+			}
+			sb.WriteRune(mainc)
+			sb.WriteString(string(combc))
+			// A wide glyph's trailing cell is a placeholder, not a space.
+			x += max(w-1, 0)
+		}
+		rows = append(rows, strings.TrimRight(sb.String(), " "))
+	}
+	return strings.Join(rows, "\n")
 }
 
 // ---- drawing ---------------------------------------------------------------------
@@ -650,14 +737,17 @@ func (a *App) Draw(s tcell.Screen) {
 	s.Clear()
 	w, h := s.Size()
 	transcriptH := max(h-4, 1)
+	a.selAreas = a.selAreas[:0]
 	// Claude Code-style "files changed" pane on the right, when there's room.
 	transcriptW := w
 	if a.showFiles && len(a.files) > 0 && w >= 100 {
 		paneW := min(max(w*2/5, 36), 90)
 		transcriptW = w - paneW
 		a.drawFiles(s, transcriptW, 0, paneW, transcriptH)
+		a.selAreas = append(a.selAreas, area{transcriptW, 0, paneW, transcriptH})
 	}
 	a.drawTranscript(s, 0, 0, transcriptW, transcriptH)
+	a.selAreas = append(a.selAreas, area{0, 0, transcriptW, transcriptH})
 
 	// Input box (3 rows) and status bar (1 row).
 	iy := transcriptH
@@ -683,6 +773,7 @@ func (a *App) Draw(s tcell.Screen) {
 		visible = hardWrapOffset(shown, off)
 	}
 	drawLine(s, 1, iy+1, inner, visible)
+	a.selAreas = append(a.selAreas, area{1, iy + 1, inner, 1})
 	if a.modal == nil {
 		s.ShowCursor(1+min(before-off, inner-1), iy+1)
 	} else {
@@ -693,13 +784,23 @@ func (a *App) Draw(s tcell.Screen) {
 	if a.speed != "" {
 		bar = append(bar, styled("⏱ "+a.speed+" ", fg(tcell.ColorGreen)))
 	}
-	bar = append(bar, styled("  Enter send · ↑↓ history · PgUp/PgDn scroll · click links · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
+	bar = append(bar, styled("  Enter send · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
 	rev := tcell.StyleDefault.Reverse(true)
 	fill(s, 0, h-1, w, 1, rev)
 	for i := range bar {
 		bar[i].Style = bar[i].Style.Reverse(true)
 	}
 	drawLine(s, 0, h-1, w, bar)
+
+	if a.sel != nil {
+		for _, r := range a.sel.rows() {
+			for x := r[1]; x <= r[2]; x++ {
+				mainc, combc, st, _ := s.GetContent(x, r[0])
+				_, _, attr := st.Decompose()
+				s.SetContent(x, r[0], mainc, combc, st.Reverse(attr&tcell.AttrReverse == 0))
+			}
+		}
+	}
 
 	if a.modal != nil {
 		a.drawModal(s, w, h)
@@ -1051,6 +1152,10 @@ func runTUI(app *App, q *uiQueue, submit chan<- string) error {
 				return nil
 			case actSubmit:
 				submit <- a.Line
+			case actCopy:
+				if err := copyToClipboard(s, app.SelectedText(s)); err != nil {
+					app.Apply(uiError{fmt.Sprintf("could not copy: %v", err)})
+				}
 			case actOpenURL:
 				if err := openURL(a.URL); err != nil {
 					app.Apply(uiError{fmt.Sprintf("could not open %s: %v", a.URL, err)})
@@ -1065,6 +1170,23 @@ func runTUI(app *App, q *uiQueue, submit chan<- string) error {
 			return nil
 		}
 	}
+}
+
+// copyToClipboard puts text on the system clipboard: pbcopy / clip, else an
+// OSC 52 escape via tcell (honored by most terminals, including over SSH).
+func copyToClipboard(s tcell.Screen, text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		s.SetClipboard([]byte(text))
+		return nil
+	}
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
 }
 
 // openURL opens url with the platform's default handler.

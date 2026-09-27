@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
 	"github.com/gdamore/tcell/v2"
@@ -157,6 +158,59 @@ func TestClickingALinkOpensItAndWheelScrolls(t *testing.T) {
 	}
 	if a.HandleMouse(tcell.NewEventMouse(0, 0, tcell.WheelUp, tcell.ModNone)) != nil || a.scroll != 3 {
 		t.Fatal(a.scroll)
+	}
+}
+
+func TestDraggingSelectsTranscriptTextForCopy(t *testing.T) {
+	a := NewApp("s")
+	a.Apply(uiLine{"alpha beta"})
+	a.Apply(uiLine{"gamma"})
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(40, 10)
+	a.Draw(s)
+	text := screen(t, a, 40, 10)
+	lines := strings.Split(text, "\n")
+	row := func(needle string) int {
+		for i, l := range lines {
+			if strings.Contains(l, needle) {
+				return i
+			}
+		}
+		t.Fatal(needle, text)
+		return 0
+	}
+	r0, r1 := row("alpha"), row("gamma")
+	col := utf8.RuneCountInString(lines[r0][:strings.Index(lines[r0], "beta")])
+	mouse := func(x, y int, b tcell.ButtonMask) Action {
+		return a.HandleMouse(tcell.NewEventMouse(x, y, b, tcell.ModNone))
+	}
+	if mouse(col, r0, tcell.Button1) != nil || mouse(4, r1, tcell.Button1) != nil {
+		t.Fatal("press/drag should not act")
+	}
+	if _, ok := mouse(4, r1, tcell.ButtonNone).(actCopy); !ok {
+		t.Fatal("release after drag should copy")
+	}
+	a.Draw(s)
+	got := a.SelectedText(s)
+	if !strings.HasPrefix(got, "beta\n") || !strings.HasSuffix(got, "· gam") {
+		t.Fatalf("%q", got)
+	}
+	// Highlighted on screen; a key or a plain click (no drag) clears it.
+	_, _, st, _ := s.GetContent(col, r0)
+	if _, _, attr := st.Decompose(); attr&tcell.AttrReverse == 0 {
+		t.Fatal("selection not highlighted")
+	}
+	a.HandleKey(tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone))
+	if a.SelectedText(s) != "" {
+		t.Fatal("key should clear selection")
+	}
+	mouse(1, r0, tcell.Button1)
+	if mouse(1, r0, tcell.ButtonNone) != nil || a.SelectedText(s) != "" {
+		t.Fatal("plain click should not select")
 	}
 }
 
