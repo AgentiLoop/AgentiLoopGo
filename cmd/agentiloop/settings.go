@@ -7,10 +7,71 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// envPath holds credentials written by the first-run wizard, one KEY=value per line (mode 0600).
+func envPath() string { return homeFile("env") }
+
+// loadEnvFile loads ~/.agentiloop/env into the process environment. Variables
+// that are already set (and non-empty) win, so a shell export always overrides the file.
+func loadEnvFile() {
+	p := envPath()
+	if p == "" {
+		return
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	for _, kv := range parseEnvFile(string(data)) {
+		if os.Getenv(kv[0]) == "" {
+			os.Setenv(kv[0], kv[1])
+		}
+	}
+}
+
+func parseEnvFile(text string) [][2]string {
+	var out [][2]string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		k, v, ok := strings.Cut(line, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			continue
+		}
+		out = append(out, [2]string{k, strings.Trim(strings.TrimSpace(v), `"`)})
+	}
+	return out
+}
+
+// saveEnvFile writes ~/.agentiloop/env (replacing it) with the given variables.
+func saveEnvFile(vars [][2]string) (string, error) {
+	p := envPath()
+	if p == "" {
+		return "", errors.New("no home directory")
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("# Written by `agentiloop --setup`. Delete with `agentiloop --reset`.\n")
+	for _, kv := range vars {
+		fmt.Fprintf(&b, "%s=%s\n", kv[0], kv[1])
+	}
+	if err := os.WriteFile(p, []byte(b.String()), 0o600); err != nil {
+		return "", err
+	}
+	return p, os.Chmod(p, 0o600)
+}
 
 type Settings struct {
 	// Model is the last model selected via /model (legacy, Anthropic-only); superseded by Models.
@@ -19,6 +80,18 @@ type Settings struct {
 	Models map[string]string `json:"models"`
 	// Last holds options from the last interactive launch, reused when not given on the command line.
 	Last LastLaunch `json:"last"`
+	// Setup records what the first-run wizard wrote outside ~/.agentiloop, so --reset can undo exactly that.
+	Setup Setup `json:"setup"`
+}
+
+// Setup is the record of the first-run wizard (agentiloop --setup).
+type Setup struct {
+	// CompletedAt is an RFC 3339 timestamp; nil until the wizard has completed.
+	CompletedAt *string `json:"completed_at"`
+	// Profile is the shell profile that holds the "# >>> agentiloop >>>" block, if one was written.
+	Profile *string `json:"profile"`
+	// Keychain lists the macOS Keychain items (service names) the wizard created.
+	Keychain []string `json:"keychain"`
 }
 
 // LastLaunch is the remembered launch options. --yes and --no-mcp are deliberately never remembered.
@@ -110,6 +183,9 @@ func saveSettings(s *Settings) error {
 	}
 	if s.Models == nil {
 		s.Models = map[string]string{}
+	}
+	if s.Setup.Keychain == nil {
+		s.Setup.Keychain = []string{} // Rust reads `null` as malformed; keep it `[]`
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
