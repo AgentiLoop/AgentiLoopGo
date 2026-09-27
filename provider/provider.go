@@ -28,7 +28,7 @@ func FromEnv(name string) (core.Provider, error) {
 	case has("OMLX_BASE_URL") || has("OMLX_PORT") || has("OMLX_API_KEY"):
 		name = "omlx"
 	default:
-		return nil, errors.New("no provider credentials found: set ANTHROPIC_API_KEY, OPENAI_API_KEY / OPENAI_BASE_URL (e.g. http://localhost:11434/v1 for Ollama), or use `-p omlx` for a local oMLX server")
+		return nil, errors.New("no provider credentials found: set ANTHROPIC_API_KEY, OPENAI_API_KEY / OPENAI_BASE_URL (e.g. http://localhost:11434/v1 for Ollama), or use `-p omlx` for a local oMLX server; run `agentiloop --setup` for a guided setup")
 	}
 	switch name {
 	case "anthropic":
