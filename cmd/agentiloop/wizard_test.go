@@ -86,10 +86,10 @@ func TestRunWizardScriptedAgainstFakeServer(t *testing.T) {
 	in := strings.NewReader("3\n" + srv.URL + "/v1\n\n2\n2\ny\n")
 	var out strings.Builder
 	saved := loadSettings()
-	if err := runWizard(context.Background(), &saved, in, &out); err != nil {
+	if err := runWizard(context.Background(), &saved, newTermPrompter(in, &out)); err != nil {
 		t.Fatal(err, out.String())
 	}
-	if !strings.Contains(out.String(), "ok (2 model(s) available)") || !strings.Contains(out.String(), "All set: openai / qwen2.5-coder") {
+	if !strings.Contains(out.String(), "Connected (2 model(s) available)") || !strings.Contains(out.String(), "All set: openai / qwen2.5-coder") {
 		t.Fatal(out.String())
 	}
 	env, _ := os.ReadFile(envPath())
@@ -111,7 +111,7 @@ func TestRunWizardCancelWritesNothing(t *testing.T) {
 	t.Setenv("AGENTILOOP_HOME", t.TempDir())
 	saved := loadSettings()
 	var out strings.Builder
-	if err := runWizard(context.Background(), &saved, strings.NewReader(""), &out); err != errCancelled {
+	if err := runWizard(context.Background(), &saved, newTermPrompter(strings.NewReader(""), &out)); err != errCancelled {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(settingsPath()); !os.IsNotExist(err) {

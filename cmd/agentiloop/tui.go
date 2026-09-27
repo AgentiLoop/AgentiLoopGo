@@ -42,6 +42,8 @@ type (
 	uiClear struct{}
 	// uiDiff: a file was written or edited; show its diff and update the files pane.
 	uiDiff struct{ Change fileChange }
+	// uiAsk: the setup wizard wants a line of input; Secret masks it (API keys).
+	uiAsk struct{ Secret bool }
 )
 
 func (uiEvent) isUiMsg()      {}
@@ -53,6 +55,34 @@ func (uiIdle) isUiMsg()       {}
 func (uiUser) isUiMsg()       {}
 func (uiClear) isUiMsg()      {}
 func (uiDiff) isUiMsg()       {}
+func (uiAsk) isUiMsg()        {}
+
+// setupPrompter runs the setup wizard inside the TUI: questions go to the
+// transcript and answers come from the input line (masked for keys).
+type setupPrompter struct {
+	q      *uiQueue
+	submit <-chan string
+}
+
+func (p *setupPrompter) read(prompt string, secret bool) (string, error) {
+	p.q.Send(uiLine{strings.TrimRight(prompt, " \t")})
+	p.q.Send(uiAsk{secret})
+	line, ok := <-p.submit
+	if !ok {
+		return "", errCancelled
+	}
+	return line, nil
+}
+
+// say drops blank lines: the transcript already spaces entries.
+func (p *setupPrompter) say(line string) {
+	if line != "" {
+		p.q.Send(uiLine{line})
+	}
+}
+
+func (p *setupPrompter) ask(prompt string) (string, error)       { return p.read(prompt, false) }
+func (p *setupPrompter) askSecret(prompt string) (string, error) { return p.read(prompt, true) }
 
 // uiQueue is an unbounded, closable queue from the agent goroutine to the UI.
 type uiQueue struct {
@@ -234,6 +264,9 @@ type App struct {
 	paneRows []diffRendered
 	// showFiles: Ctrl-F toggles the files pane.
 	showFiles bool
+	// asking is set while the setup wizard waits for an answer on the input
+	// line; askSecret masks it.
+	asking, askSecret bool
 }
 
 type diffRendered struct {
@@ -277,6 +310,9 @@ func (a *App) Apply(msg UiMsg) {
 		a.status = m.Text
 	case uiIdle:
 		a.busy = false
+	case uiAsk:
+		a.busy = false
+		a.asking, a.askSecret = true, m.Secret
 	case uiUser:
 		a.push(kindUser, m.Text)
 	case uiClear:
@@ -436,10 +472,27 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 		a.input, a.cursor = "", 0
 	case tcell.KeyEnter:
 		line := strings.TrimSpace(a.input)
-		if line == "" || a.busy {
+		if a.busy || (line == "" && !a.asking) {
 			return nil
 		}
 		a.input, a.cursor, a.histIdx, a.scroll = "", 0, -1, 0
+		if line == "/exit" || line == "/quit" {
+			a.quit = true
+			return actQuit{}
+		}
+		// A wizard answer: echoed (masked for keys), never kept in history.
+		if a.asking {
+			shown := line
+			if a.askSecret {
+				shown = strings.Repeat("•", utf8.RuneCountInString(line))
+			}
+			a.asking = false
+			a.push(kindUser, shown)
+			a.busy = true
+			a.busySince = a.now()
+			a.activity = "Setting up"
+			return actSubmit{line}
+		}
 		if len(a.history) == 0 || a.history[len(a.history)-1] != line {
 			a.history = append(a.history, line)
 			if a.historyFile != "" {
@@ -447,10 +500,6 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 					slog.Warn("could not save history", "err", err)
 				}
 			}
-		}
-		if line == "/exit" || line == "/quit" {
-			a.quit = true
-			return actQuit{}
 		}
 		if !strings.HasPrefix(line, "/") {
 			a.push(kindUser, line)
@@ -613,17 +662,25 @@ func (a *App) Draw(s tcell.Screen) {
 	// Input box (3 rows) and status bar (1 row).
 	iy := transcriptH
 	title := Line{raw(" prompt ")}
-	if a.busy {
+	switch {
+	case a.busy:
 		title = a.busyTitle()
+	case a.asking:
+		title = Line{raw(" setup ")}
 	}
 	drawBox(s, 0, iy, w, 3, tcell.StyleDefault, title)
 	inner := max(w-2, 1)
+	shown, cursor := a.input, a.cursor
+	if a.asking && a.askSecret {
+		shown = strings.Repeat("•", utf8.RuneCountInString(a.input))
+		cursor = len(strings.Repeat("•", utf8.RuneCountInString(a.input[:a.cursor])))
+	}
 	// Keep the cursor visible in a long line by scrolling the input horizontally.
-	before := width(a.input[:a.cursor])
+	before := width(shown[:cursor])
 	off := max(before-(inner-1), 0)
-	visible := Line{raw(a.input)}
+	visible := Line{raw(shown)}
 	if off > 0 {
-		visible = hardWrapOffset(a.input, off)
+		visible = hardWrapOffset(shown, off)
 	}
 	drawLine(s, 1, iy+1, inner, visible)
 	if a.modal == nil {

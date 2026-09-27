@@ -1,9 +1,11 @@
 package main
 
-// First-run wizard (agentiloop --setup): pick a provider, enter a key, check
-// the connection, choose a model, and save the credential to ~/.agentiloop/env
-// (optionally also the shell profile or the macOS Keychain). Runs by itself when
-// there are no credentials and nothing in ~/.agentiloop.
+// First-run wizard (agentiloop --setup, /setup): pick a provider, enter a key,
+// check the connection, choose a model, and save the credential to
+// ~/.agentiloop/env (optionally also the shell profile or the macOS Keychain).
+// Runs by itself when there are no credentials and nothing in ~/.agentiloop.
+// Talks to the user through a prompter, so it works on the plain terminal and
+// inside the TUI alike.
 // Mirrors wizard.rs in the Rust AgentiLoop CLI.
 
 import (
@@ -43,13 +45,31 @@ func shouldRunWizard(interactive, providerFlag bool) bool {
 
 var errCancelled = errors.New("setup cancelled; nothing was saved")
 
-type wizardIO struct {
+// prompter is how the wizard talks to the user: the plain terminal
+// (termPrompter) or the TUI's transcript and input line (setupPrompter).
+type prompter interface {
+	// say shows a line (may contain newlines; empty = blank line where that makes sense).
+	say(line string)
+	// ask shows prompt and waits for a line of input (trimmed).
+	ask(prompt string) (string, error)
+	// askSecret is like ask, but the answer is hidden as it is typed and not kept in history.
+	askSecret(prompt string) (string, error)
+}
+
+// termPrompter is plain stdin/stdout, for the first run and the line REPL.
+type termPrompter struct {
 	in  *bufio.Reader
 	out io.Writer
 	tty bool // stdin is a terminal: hide secrets
 }
 
-func (w *wizardIO) ask(prompt string) (string, error) {
+func newTermPrompter(in io.Reader, out io.Writer) *termPrompter {
+	return &termPrompter{in: bufio.NewReader(in), out: out, tty: term.IsTerminal(int(os.Stdin.Fd()))}
+}
+
+func (w *termPrompter) say(line string) { fmt.Fprintln(w.out, line) }
+
+func (w *termPrompter) ask(prompt string) (string, error) {
 	fmt.Fprint(w.out, prompt)
 	line, err := w.in.ReadString('\n')
 	if err != nil && line == "" {
@@ -59,15 +79,7 @@ func (w *wizardIO) ask(prompt string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-func (w *wizardIO) askDefault(prompt, def string) (string, error) {
-	a, err := w.ask(fmt.Sprintf("%s [%s]: ", prompt, def))
-	if a == "" {
-		return def, err
-	}
-	return a, err
-}
-
-func (w *wizardIO) askSecret(prompt string) (string, error) {
+func (w *termPrompter) askSecret(prompt string) (string, error) {
 	// Hidden input needs a terminal; scripted stdin (tests, pipes) falls back to a plain read.
 	if !w.tty {
 		return w.ask(prompt)
@@ -81,12 +93,20 @@ func (w *wizardIO) askSecret(prompt string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-func (w *wizardIO) askYes(prompt string, defYes bool) (bool, error) {
+func askDefault(p prompter, prompt, def string) (string, error) {
+	a, err := p.ask(fmt.Sprintf("%s [%s]: ", prompt, def))
+	if a == "" {
+		return def, err
+	}
+	return a, err
+}
+
+func askYes(p prompter, prompt string, defYes bool) (bool, error) {
 	hint := "[y/N]"
 	if defYes {
 		hint = "[Y/n]"
 	}
-	a, err := w.ask(prompt + " " + hint + " ")
+	a, err := p.ask(prompt + " " + hint + " ")
 	if err != nil {
 		return false, err
 	}
@@ -99,9 +119,9 @@ func (w *wizardIO) askYes(prompt string, defYes bool) (bool, error) {
 	return false, nil
 }
 
-func (w *wizardIO) choose(prompt string, n, def int) (int, error) {
+func choose(p prompter, prompt string, n, def int) (int, error) {
 	for {
-		a, err := w.ask(fmt.Sprintf("%s [1-%d, default %d]: ", prompt, n, def))
+		a, err := p.ask(fmt.Sprintf("%s [1-%d, default %d]: ", prompt, n, def))
 		if err != nil {
 			return 0, err
 		}
@@ -111,7 +131,7 @@ func (w *wizardIO) choose(prompt string, n, def int) (int, error) {
 		if i, err := strconv.Atoi(a); err == nil && i >= 1 && i <= n {
 			return i, nil
 		}
-		fmt.Fprintf(w.out, "Please enter a number from 1 to %d.\n", n)
+		p.say(fmt.Sprintf("Please enter a number from 1 to %d.", n))
 	}
 }
 
@@ -218,6 +238,7 @@ func writeBlock(path string, lines []string) error {
 		text += "\n"
 	}
 	text += blockStart + "\n" + strings.Join(lines, "\n") + "\n" + blockEnd + "\n"
+	text = matchLineEndings(string(existing), text)
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
@@ -271,15 +292,15 @@ type connected struct {
 	models []core.ModelInfo
 }
 
-func (w *wizardIO) connect(ctx context.Context) (*connected, error) {
+func connect(ctx context.Context, p prompter) (*connected, error) {
 	for {
-		fmt.Fprintln(w.out)
-		fmt.Fprintln(w.out, "Which model provider do you want to use?")
-		fmt.Fprintln(w.out, "  1  Claude (Anthropic) — API key from console.anthropic.com")
-		fmt.Fprintln(w.out, "  2  OpenAI — API key from platform.openai.com")
-		fmt.Fprintln(w.out, "  3  Ollama, LM Studio or another OpenAI-compatible server (local, usually no key)")
-		fmt.Fprintln(w.out, "  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)")
-		choice, err := w.choose("Provider", 4, 1)
+		p.say("")
+		p.say("Which model provider do you want to use?\n" +
+			"  1  Claude (Anthropic) — API key from console.anthropic.com\n" +
+			"  2  OpenAI — API key from platform.openai.com\n" +
+			"  3  Ollama, LM Studio or another OpenAI-compatible server (local, usually no key)\n" +
+			"  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)")
+		choice, err := choose(p, "Provider", 4, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -287,23 +308,23 @@ func (w *wizardIO) connect(ctx context.Context) (*connected, error) {
 		var vars [][2]string
 		switch choice {
 		case 1:
-			key, err := w.askSecret("Anthropic API key (starts with sk-ant-, input hidden): ")
+			key, err := p.askSecret("Anthropic API key (starts with sk-ant-, input hidden): ")
 			if err != nil {
 				return nil, err
 			}
 			name, vars = "anthropic", [][2]string{{"ANTHROPIC_API_KEY", key}}
 		case 2:
-			key, err := w.askSecret("OpenAI API key (starts with sk-, input hidden): ")
+			key, err := p.askSecret("OpenAI API key (starts with sk-, input hidden): ")
 			if err != nil {
 				return nil, err
 			}
 			name, vars = "openai", [][2]string{{"OPENAI_API_KEY", key}}
 		case 3:
-			url, err := w.askDefault("Server URL", "http://localhost:11434/v1")
+			url, err := askDefault(p, "Server URL", "http://localhost:11434/v1")
 			if err != nil {
 				return nil, err
 			}
-			key, err := w.askSecret("API key (press Enter if the server needs none, input hidden): ")
+			key, err := p.askSecret("API key (press Enter if the server needs none, input hidden): ")
 			if err != nil {
 				return nil, err
 			}
@@ -315,7 +336,7 @@ func (w *wizardIO) connect(ctx context.Context) (*connected, error) {
 			name = "omlx"
 			home, _ := os.UserHomeDir()
 			if _, err := os.Stat(filepath.Join(home, ".omlx", "settings.json")); err != nil {
-				url, err := w.askDefault("oMLX server URL", "http://localhost:8000/v1")
+				url, err := askDefault(p, "oMLX server URL", "http://localhost:8000/v1")
 				if err != nil {
 					return nil, err
 				}
@@ -329,27 +350,27 @@ func (w *wizardIO) connect(ctx context.Context) (*connected, error) {
 			}
 		}
 		if empty {
-			fmt.Fprintln(w.out, "The key is empty.")
+			p.say("The key is empty.")
 			continue
 		}
 		for _, kv := range vars {
 			os.Setenv(kv[0], kv[1])
 		}
-		fmt.Fprint(w.out, "Checking the connection… ")
+		p.say("Checking the connection…")
 		prov, err := provider.FromEnv(name)
 		var models []core.ModelInfo
 		if err == nil {
 			models, err = prov.ListModels(ctx)
 		}
 		if err == nil {
-			fmt.Fprintf(w.out, "ok (%d model(s) available).\n", len(models))
+			p.say(fmt.Sprintf("Connected (%d model(s) available).", len(models)))
 			return &connected{name, vars, prov, models}, nil
 		}
-		fmt.Fprintf(w.out, "failed.\n  %v\n", err)
+		p.say(fmt.Sprintf("Connection failed.\n  %v", err))
 		for _, kv := range vars {
 			os.Unsetenv(kv[0])
 		}
-		again, err := w.askYes("Try again?", true)
+		again, err := askYes(p, "Try again?", true)
 		if err != nil {
 			return nil, err
 		}
@@ -359,33 +380,34 @@ func (w *wizardIO) connect(ctx context.Context) (*connected, error) {
 	}
 }
 
-func (w *wizardIO) pickModel(c *connected) (string, error) {
+func pickModel(p prompter, c *connected) (string, error) {
 	def := c.prov.DefaultModel()
 	if def == "" && len(c.models) > 0 {
 		def = c.models[0].ID
 	}
 	if len(c.models) == 0 {
-		fmt.Fprintf(w.out, "The server lists no models; using `%s`. Change it later with /model.\n", def)
+		p.say(fmt.Sprintf("The server lists no models; using `%s`. Change it later with /model.", def))
 		return def, nil
 	}
-	fmt.Fprintln(w.out)
-	fmt.Fprintln(w.out, "Pick a model (change it any time with /model):")
+	p.say("")
 	shown := c.models
 	if len(shown) > 15 {
 		shown = shown[:15]
 	}
+	list := "Pick a model (change it any time with /model):"
 	for i, m := range shown {
 		mark := ""
 		if m.ID == def {
 			mark = "  (default)"
 		}
-		fmt.Fprintf(w.out, "  %2d  %s%s\n", i+1, m.ID, mark)
+		list += fmt.Sprintf("\n  %2d  %s%s", i+1, m.ID, mark)
 	}
 	if len(c.models) > len(shown) {
-		fmt.Fprintf(w.out, "      … and %d more (type the id)\n", len(c.models)-len(shown))
+		list += fmt.Sprintf("\n      … and %d more (type the id)", len(c.models)-len(shown))
 	}
+	p.say(list)
 	for {
-		a, err := w.ask(fmt.Sprintf("Model [1-%d, an id, or Enter for %s]: ", len(shown), def))
+		a, err := p.ask(fmt.Sprintf("Model [1-%d, an id, or Enter for %s]: ", len(shown), def))
 		if err != nil {
 			return "", err
 		}
@@ -400,7 +422,7 @@ func (w *wizardIO) pickModel(c *connected) (string, error) {
 				return a, nil
 			}
 		}
-		ok, err := w.askYes(fmt.Sprintf("`%s` is not in the list; use it anyway?", a), false)
+		ok, err := askYes(p, fmt.Sprintf("`%s` is not in the list; use it anyway?", a), false)
 		if err != nil {
 			return "", err
 		}
@@ -410,21 +432,20 @@ func (w *wizardIO) pickModel(c *connected) (string, error) {
 	}
 }
 
-// runWizard is agentiloop --setup. It mutates saved and writes settings.json.
-func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer) error {
+// runWizard is agentiloop --setup / /setup. It mutates saved and writes settings.json.
+func runWizard(ctx context.Context, saved *Settings, p prompter) error {
 	home := agentiloopHome()
 	if home == "" {
 		return errors.New("no home directory")
 	}
-	w := &wizardIO{in: bufio.NewReader(in), out: out, tty: term.IsTerminal(int(os.Stdin.Fd()))}
-	fmt.Fprintln(out, "Welcome to AgentiLoop! Let's set things up (about a minute).")
-	fmt.Fprintf(out, "Settings are kept in %s. Run `agentiloop --setup` to redo this, `agentiloop --reset` to start over.\n", home)
+	p.say("Welcome to AgentiLoop! Let's set things up (about a minute).")
+	p.say(fmt.Sprintf("Settings are kept in %s. Run `agentiloop --setup` or `/setup` to redo this, `agentiloop --reset` to start over.", home))
 
-	c, err := w.connect(ctx)
+	c, err := connect(ctx, p)
 	if err != nil {
 		return err
 	}
-	model, err := w.pickModel(c)
+	model, err := pickModel(p, c)
 	if err != nil {
 		return err
 	}
@@ -436,22 +457,22 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 	setup := Setup{CompletedAt: &now, Keychain: []string{}, UserEnv: []string{}}
 	var block []string
 	if len(c.vars) > 0 {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "Where should the credential be saved?")
-		fmt.Fprintf(out, "  1  %s (recommended; only agentiloop reads it, file mode 600)\n", filepath.Join(home, "env"))
+		p.say("")
+		menu := fmt.Sprintf("Where should the credential be saved?\n  1  %s (recommended; only agentiloop reads it, file mode 600)", filepath.Join(home, "env"))
 		n := 1
 		if profile != "" {
 			n = 2
-			fmt.Fprintf(out, "  2  Also add it to %s so other tools in your terminal see it\n", profile)
+			menu += fmt.Sprintf("\n  2  Also add it to %s so other tools in your terminal see it", profile)
 			if runtime.GOOS == "darwin" {
 				n = 3
-				fmt.Fprintf(out, "  3  macOS Keychain, with a line in %s that reads it (nothing stored in plain text)\n", profile)
+				menu += fmt.Sprintf("\n  3  macOS Keychain, with a line in %s that reads it (nothing stored in plain text)", profile)
 			}
 		} else if userEnv {
 			n = 2
-			fmt.Fprintln(out, "  2  Also save it as a Windows user environment variable (setx), so every new terminal window sees it")
+			menu += "\n  2  Also save it as a Windows user environment variable (setx), so every new terminal window sees it"
 		}
-		choice, err := w.choose("Save to", n, 1)
+		p.say(menu)
+		choice, err := choose(p, "Save to", n, 1)
 		if err != nil {
 			return err
 		}
@@ -464,7 +485,7 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 					}
 					setup.Keychain = append(setup.Keychain, kv[0])
 					block = append(block, keychainLine(kind, kv[0]))
-					fmt.Fprintf(out, "stored %s in the Keychain\n", kv[0])
+					p.say(fmt.Sprintf("stored %s in the Keychain", kv[0]))
 				} else {
 					block = append(block, exportLine(kind, kv[0], kv[1]))
 				}
@@ -479,17 +500,17 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 						return err
 					}
 					setup.UserEnv = append(setup.UserEnv, kv[0])
-					fmt.Fprintf(out, "saved %s as a user environment variable (new terminal windows will see it)\n", kv[0])
+					p.say(fmt.Sprintf("saved %s as a user environment variable (new terminal windows will see it)", kv[0]))
 				} else {
 					block = append(block, exportLine(kind, kv[0], kv[1]))
 				}
 			}
 		default:
-			p, err := saveEnvFile(c.vars)
+			path, err := saveEnvFile(c.vars)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "saved to %s\n", p)
+			p.say("saved to " + path)
 		}
 	}
 
@@ -498,9 +519,9 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 	if dir := exeDirMissingFromPath(); dir != "" {
 		switch {
 		case profile != "":
-			fmt.Fprintln(out)
-			fmt.Fprintf(out, "`%s` is not on your PATH, so `agentiloop` only works with its full path.\n", dir)
-			ok, err := w.askYes(fmt.Sprintf("Add it to PATH in %s?", profile), true)
+			p.say("")
+			p.say(fmt.Sprintf("`%s` is not on your PATH, so `agentiloop` only works with its full path.", dir))
+			ok, err := askYes(p, fmt.Sprintf("Add it to PATH in %s?", profile), true)
 			if err != nil {
 				return err
 			}
@@ -508,9 +529,9 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 				block = append(block, pathLine(kind, dir))
 			}
 		case userEnv:
-			fmt.Fprintln(out)
-			fmt.Fprintf(out, "`%s` is not on your PATH. To run `agentiloop` from any folder, add it once in PowerShell:\n"+
-				"  [Environment]::SetEnvironmentVariable(\"Path\", [Environment]::GetEnvironmentVariable(\"Path\", \"User\") + \";%s\", \"User\")\n", dir, dir)
+			p.say("")
+			p.say(fmt.Sprintf("`%s` is not on your PATH. To run `agentiloop` from any folder, add it once in PowerShell:\n"+
+				"  [Environment]::SetEnvironmentVariable(\"Path\", [Environment]::GetEnvironmentVariable(\"Path\", \"User\") + \";%s\", \"User\")", dir, dir))
 		}
 	}
 	if len(block) > 0 {
@@ -518,7 +539,7 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 			return err
 		}
 		setup.Profile = &profile
-		fmt.Fprintf(out, "updated %s (between `%s` and `%s`); it applies to new terminals\n", profile, blockStart, blockEnd)
+		p.say(fmt.Sprintf("updated %s (between `%s` and `%s`); it applies to new terminals", profile, blockStart, blockEnd))
 	}
 
 	saved.SetModel(c.name, model)
@@ -529,7 +550,8 @@ func runWizard(ctx context.Context, saved *Settings, in io.Reader, out io.Writer
 		return err
 	}
 
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "All set: %s / %s. Type a request at the prompt, /help for commands, /exit to leave.\n\n", c.name, model)
+	p.say("")
+	p.say(fmt.Sprintf("All set: %s / %s. Type a request at the prompt, /help for commands, /exit to leave.", c.name, model))
+	p.say("")
 	return nil
 }

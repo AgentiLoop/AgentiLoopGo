@@ -318,7 +318,45 @@ func TestStatusBarShowsTokensPerSecond(t *testing.T) {
 	}
 }
 
+func TestSetupAnswersAreMaskedAndKeptOutOfHistory(t *testing.T) {
+	a := NewApp("s")
+	typeStr(a, "/setup")
+	a.HandleKey(key(tcell.KeyEnter))
+	if !a.busy {
+		t.Fatal("not busy")
+	}
+	a.Apply(uiLine{"Provider [1-4, default 1]:"})
+	a.Apply(uiAsk{Secret: false})
+	if a.busy {
+		t.Fatal("busy while asking")
+	}
+	// Enter on an empty line is an answer ("use the default") while asking.
+	if act, ok := a.HandleKey(key(tcell.KeyEnter)).(actSubmit); !ok || act.Line != "" {
+		t.Fatalf("%#v", act)
+	}
+	if !a.busy || a.asking {
+		t.Fatal("expected busy and not asking")
+	}
+	a.Apply(uiAsk{Secret: true})
+	typeStr(a, "sk-secret")
+	s := screen(t, a, 40, 8)
+	if !strings.Contains(s, "•••••••••") || strings.Contains(s, "sk-secret") || !strings.Contains(s, " setup ") {
+		t.Fatal(s)
+	}
+	if act, ok := a.HandleKey(key(tcell.KeyEnter)).(actSubmit); !ok || act.Line != "sk-secret" {
+		t.Fatalf("%#v", act)
+	}
+	s = screen(t, a, 40, 8)
+	if !strings.Contains(s, "> •••••••••") || strings.Contains(s, "sk-secret") {
+		t.Fatal(s)
+	}
+	if len(a.history) != 1 || a.history[0] != "/setup" {
+		t.Fatal(a.history)
+	}
+}
+
 func TestHistoryRecallUpDown(t *testing.T) {
+
 	a := NewApp("s")
 	for _, l := range []string{"one", "two"} {
 		typeStr(a, l)

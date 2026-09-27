@@ -182,13 +182,61 @@ func run() error {
 	// so a bare `agentiloop` reopens with the same provider, model, UI and session.
 	saved := loadSettings()
 	interactive := len(cli.prompt) == 0
+	useTUI := interactive && !cli.noTUI && (cli.tui || saved.Last.TUI)
+
+	// The TUI owns the screen from the very start, so the setup wizard and any
+	// startup messages go through it; without it they go to the terminal.
+	q := newUIQueue()
+	submit := make(chan string, 1)
+	var uiDone chan error
+	if useTUI {
+		app := NewApp(fmt.Sprintf(" AgentiLoop  %s ", cwd)).WithHistoryFile(historyPath())
+		uiDone = make(chan error, 1)
+		go func() { uiDone <- runTUI(app, q, submit) }()
+	}
+	note := func(s string) {
+		if useTUI {
+			q.Send(uiLine{s})
+		} else {
+			fmt.Fprintln(os.Stderr, s)
+		}
+	}
+	var setup prompter = newTermPrompter(os.Stdin, os.Stdout)
+	if useTUI {
+		setup = &setupPrompter{q: q, submit: submit}
+	}
+
+	// Everything that can fail before the agent exists runs in boot so that, with
+	// the TUI up, the screen is restored before the error reaches stderr.
+	st, err := boot(ctx, cli, &saved, cwd, interactive, useTUI, q, setup, note)
+	if err != nil {
+		if useTUI {
+			q.Close()
+			<-uiDone
+		}
+		return err
+	}
+	defer st.mcp.Shutdown()
+
+	if !interactive {
+		err := st.agent.Run(ctx, strings.Join(cli.prompt, " "), renderTracked(newDiffTracker(cwd)))
+		st.persist()
+		return err
+	}
+	if useTUI {
+		return runTUIMode(ctx, st, q, submit, uiDone, cwd)
+	}
+	return runREPL(ctx, st, cwd)
+}
+
+// boot runs the wizard when asked, picks provider/model/session and builds the agent.
+func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, interactive, useTUI bool, q *uiQueue, setup prompter, note func(string)) (*cmdState, error) {
 	if cli.setup || shouldRunWizard(interactive, cli.provider != "") {
-		if err := runWizard(ctx, &saved, os.Stdin, os.Stdout); err != nil {
-			return err
+		if err := runWizard(ctx, saved, setup); err != nil {
+			return nil, err
 		}
 	}
 	last := saved.Last
-	useTUI := interactive && !cli.noTUI && (cli.tui || last.TUI)
 	maxTurns := 50
 	if cli.maxTurns != nil {
 		maxTurns = *cli.maxTurns
@@ -208,7 +256,7 @@ func run() error {
 	}
 	prov, err := provider.FromEnv(provName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registry := tools.DefaultRegistry()
 	mcp.Version = version
@@ -218,15 +266,13 @@ func run() error {
 	}
 	mgr.RegisterTools(registry)
 	if !mgr.IsEmpty() {
-		fmt.Fprintf(os.Stderr, "mcp: %d server(s) connected, %d tool(s)\n", len(mgr.Servers), mgr.ToolCount())
+		note(fmt.Sprintf("mcp: %d server(s) connected, %d tool(s)", len(mgr.Servers), mgr.ToolCount()))
 		for _, e := range mgr.Errors {
-			fmt.Fprintf(os.Stderr, "mcp: %s failed: %s\n", e.Name, e.Err)
+			note(fmt.Sprintf("mcp: %s failed: %s", e.Name, e.Err))
 		}
 	}
-	defer mgr.Shutdown()
 
 	// The TUI answers permission prompts through its own queue-backed policy.
-	q := newUIQueue()
 	var policy core.PermissionPolicy
 	if useTUI && !cli.yes {
 		policy = NewChannelPolicy(q)
@@ -243,18 +289,18 @@ func run() error {
 	case sdir == "":
 	case cli.resume != "":
 		if resumed, err = core.LoadSession(sdir, cli.resume); err != nil {
-			return err
+			return nil, err
 		}
 	case cli.continueLast || autoContinue:
 		if resumed, err = core.LatestSessionFor(sdir, cwd); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if autoContinue && resumed != nil && resumed.Provider != prov.Name() {
 		resumed = nil
 	}
 	if cli.continueLast && resumed == nil {
-		fmt.Fprintf(os.Stderr, "no previous session for %s; starting fresh\n", cwd)
+		note(fmt.Sprintf("no previous session for %s; starting fresh", cwd))
 	}
 
 	model := cli.model
@@ -269,10 +315,10 @@ func run() error {
 			// Local servers (oMLX) have no fixed catalog: take whatever is served first.
 			models, err := prov.ListModels(ctx)
 			if err != nil {
-				return fmt.Errorf("could not get the model list from %s: %w", prov.Name(), err)
+				return nil, fmt.Errorf("could not get the model list from %s: %w", prov.Name(), err)
 			}
 			if len(models) == 0 {
-				return fmt.Errorf("%s serves no models; load one or pass --model", prov.Name())
+				return nil, fmt.Errorf("%s serves no models; load one or pass --model", prov.Name())
 			}
 			model = models[0].ID
 		} else {
@@ -288,31 +334,21 @@ func run() error {
 		name := prov.Name()
 		saved.Last = LastLaunch{Provider: &name, TUI: useTUI, MaxTurns: &maxTurns, CompactAt: &compactAt}
 	}
-	if err := saveSettings(&saved); err != nil {
+	if err := saveSettings(saved); err != nil {
 		slog.Warn("could not save settings", "err", err)
 	}
 
 	agent := core.NewAgent(prov, registry, policy, config, core.ToolContext{Cwd: cwd})
 	var session *core.Session
 	if resumed != nil {
-		fmt.Fprintf(os.Stderr, "resumed session %s (%d messages): %s\n", resumed.ID, len(resumed.History), resumed.Title())
+		note(fmt.Sprintf("resumed session %s (%d messages): %s", resumed.ID, len(resumed.History), resumed.Title()))
 		agent.History = append([]core.Message(nil), resumed.History...)
 		session = resumed
 	} else {
 		session = core.NewSession(cwd, prov.Name(), agent.Model())
 	}
 
-	st := &cmdState{agent: agent, provider: prov, saved: &saved, session: session, sessionsDir: sdir, mcp: mgr}
-
-	if !interactive {
-		err := agent.Run(ctx, strings.Join(cli.prompt, " "), renderTracked(newDiffTracker(cwd)))
-		st.persist()
-		return err
-	}
-	if useTUI {
-		return runTUIMode(ctx, st, q, cwd)
-	}
-	return runREPL(ctx, st, cwd)
+	return &cmdState{agent: agent, provider: prov, saved: saved, session: session, sessionsDir: sdir, mcp: mgr, setup: setup}, nil
 }
 
 // cmdState is what slash commands operate on.
@@ -325,18 +361,19 @@ type cmdState struct {
 	mcp         *mcp.Manager
 	// ask reads a line from the user (REPL only); nil in the TUI.
 	ask func(prompt string) (string, error)
+	// setup is how /setup talks to the user: the terminal, or the TUI's transcript and input line.
+	setup prompter
 }
 
-func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, cwd string) error {
+func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan string, uiDone <-chan error, cwd string) error {
 	status := func() string {
 		return fmt.Sprintf(" AgentiLoop  %s  %s  %s  session %s ", cwd, st.provider.Name(), st.agent.Model(), st.session.ID)
 	}
-	app := NewApp(status()).WithHistoryFile(historyPath())
+	q.Send(uiStatus{status()})
 	// A continued session shows its earlier conversation, not an empty screen.
 	replayTUI(q, st.agent.History)
-	submit := make(chan string, 1)
-	uiDone := make(chan error, 1)
-	go func() { uiDone <- runTUI(app, q, submit) }()
+	// The last wizard answer left the UI in "Setting up"; the prompt is open now.
+	q.Send(uiIdle{})
 	tracker := newDiffTracker(cwd)
 	// Agent side: one prompt or slash command at a time, until the UI hangs up.
 	for line := range submit {
@@ -545,11 +582,13 @@ const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/sessions       list saved sessions (newest first)\n" +
 	"/resume <id|n>  load a saved session into this REPL\n" +
 	"/clear          clear context and start a new session\n" +
+	"/setup          run the setup wizard again (provider, key, model)\n" +
 	"/exit           quit"
 
 // slashCommand runs a /command. Output lines go through say so the REPL
 // (stderr) and the TUI (transcript) share one implementation; st.ask lets the
-// /model picker read a choice in the REPL.
+// /model picker read a choice in the REPL. /setup talks through st.setup (the
+// terminal, or the TUI's transcript and input line).
 func (st *cmdState) slashCommand(ctx context.Context, line string, say func(string)) error {
 	cmd, arg, _ := strings.Cut(line, " ")
 	arg = strings.TrimSpace(arg)
@@ -676,6 +715,13 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		}
 	case "/help":
 		say(helpText)
+	case "/setup":
+		// The running agent keeps its provider; a new key or provider needs a relaunch.
+		if err := runWizard(ctx, st.saved, st.setup); err != nil {
+			say(err.Error())
+		} else {
+			say("setup saved; restart agentiloop to use the new provider and credentials")
+		}
 	default:
 		say(fmt.Sprintf("unknown command %s (try /help)", cmd))
 	}

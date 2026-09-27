@@ -444,6 +444,7 @@ Type these at the prompt, in the TUI or the chat:
 | `/clear` | Clear the conversation and start a new one |
 | `/compact` | Summarize the conversation now to free up space |
 | `/mcp` | Show connected MCP servers and their tools |
+| `/setup` | Run the setup wizard again (works in the TUI too). A new key or provider takes effect after a restart |
 | `/help` | List these commands |
 | `/exit` | Quit |
 
