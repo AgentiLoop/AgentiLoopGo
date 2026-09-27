@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,22 +14,41 @@ import (
 type AgentConfig struct {
 	Model        string
 	SystemPrompt string
-	MaxTokens    int
+	// MaxTokens is the output cap per response. nil = the model's own max_tokens
+	// from the provider catalog (falls back to FallbackMaxTokens if unknown).
+	MaxTokens *int
 	// MaxTurns is a hard cap on provider round-trips per Run to avoid runaway loops.
 	MaxTurns int
 	// CompactAtTokens: when the last request's input tokens reach this, the
-	// history is summarized before the next request. 0 disables compaction.
-	CompactAtTokens uint64
+	// history is summarized before the next request. nil = compactFraction of
+	// the model's context window (or FallbackCompactAt if unknown). 0 disables.
+	CompactAtTokens *uint64
 }
 
 func DefaultAgentConfig() AgentConfig {
 	return AgentConfig{
-		Model:           "claude-sonnet-5",
-		SystemPrompt:    DefaultSystemPrompt,
-		MaxTokens:       8192,
-		MaxTurns:        50,
-		CompactAtTokens: 150_000,
+		Model:        "claude-sonnet-5",
+		SystemPrompt: DefaultSystemPrompt,
+		MaxTurns:     50,
 	}
+}
+
+const (
+	// FallbackMaxTokens is used when the provider catalog doesn't report the model's output limit.
+	FallbackMaxTokens = 32_768
+	// FallbackCompactAt is used when the provider catalog doesn't report the model's context window.
+	FallbackCompactAt uint64 = 150_000
+	// compactFraction: compact once input reaches this share of the model's context window.
+	compactFraction = 0.8
+)
+
+// ModelLimits are the output and context limits in effect for the agent's current model.
+type ModelLimits struct {
+	MaxTokens int
+	// ContextWindow in tokens, when known.
+	ContextWindow *uint64
+	// CompactAtTokens is the effective compaction threshold (0 = disabled).
+	CompactAtTokens uint64
 }
 
 const DefaultSystemPrompt = "You are AgentiLoop, an autonomous terminal coding agent. " +
@@ -98,6 +118,8 @@ type Agent struct {
 	History  []Message
 	// lastInputTokens: input tokens reported by the most recent provider response.
 	lastInputTokens uint64
+	// limits resolved from the provider catalog for config.Model; cleared on SetModel.
+	limits *ModelLimits
 }
 
 func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config AgentConfig, tc ToolContext) *Agent {
@@ -105,11 +127,52 @@ func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config A
 }
 
 func (a *Agent) Model() string            { return a.config.Model }
-func (a *Agent) SetModel(m string)        { a.config.Model = m }
+func (a *Agent) SetModel(m string)        { a.config.Model = m; a.limits = nil }
 func (a *Agent) LastInputTokens() uint64  { return a.lastInputTokens }
 func (a *Agent) Provider() Provider       { return a.provider }
 func (a *Agent) Tools() *ToolRegistry     { return a.tools }
 func (a *Agent) Policy() PermissionPolicy { return a.policy }
+
+// Limits in effect for the current model, once a run has resolved them (nil before).
+func (a *Agent) Limits() *ModelLimits {
+	if a.limits == nil {
+		return nil
+	}
+	l := *a.limits
+	return &l
+}
+
+// ResolveLimits looks up the model's output cap and context window from the
+// provider catalog (once per model) and combines them with any config
+// overrides. A catalog failure is not fatal: the fallbacks apply.
+func (a *Agent) ResolveLimits(ctx context.Context) ModelLimits {
+	if a.limits != nil {
+		return *a.limits
+	}
+	info, err := LookupModelInfo(ctx, a.provider, a.config.Model)
+	if err != nil {
+		slog.Warn("could not look up model limits", "model", a.config.Model, "err", err)
+		info = nil
+	}
+	limits := ModelLimits{MaxTokens: FallbackMaxTokens, CompactAtTokens: FallbackCompactAt}
+	if info != nil {
+		limits.ContextWindow = info.MaxInputTokens
+		if info.MaxTokens != nil {
+			limits.MaxTokens = *info.MaxTokens
+		}
+		if info.MaxInputTokens != nil {
+			limits.CompactAtTokens = uint64(float64(*info.MaxInputTokens) * compactFraction)
+		}
+	}
+	if a.config.MaxTokens != nil {
+		limits.MaxTokens = *a.config.MaxTokens
+	}
+	if a.config.CompactAtTokens != nil {
+		limits.CompactAtTokens = *a.config.CompactAtTokens
+	}
+	a.limits = &limits
+	return limits
+}
 
 // Clear drops all conversation context and tool history.
 func (a *Agent) Clear() {
@@ -118,7 +181,11 @@ func (a *Agent) Clear() {
 }
 
 func (a *Agent) shouldCompact() bool {
-	return a.config.CompactAtTokens > 0 && a.lastInputTokens >= a.config.CompactAtTokens
+	if a.limits == nil {
+		return false
+	}
+	at := a.limits.CompactAtTokens
+	return at > 0 && a.lastInputTokens >= at
 }
 
 // Compact replaces the history with a provider-written summary of it. Returns nil when empty.
@@ -159,6 +226,7 @@ func (a *Agent) toolSpecs() []ToolSpec {
 
 // Run is the core agentic loop: send → if tool_use, execute tools, append results, repeat.
 func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) error {
+	limits := a.ResolveLimits(ctx)
 	if a.shouldCompact() {
 		ev, err := a.Compact(ctx)
 		if err != nil {
@@ -176,7 +244,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			System:    a.config.SystemPrompt,
 			Messages:  append([]Message(nil), a.History...),
 			Tools:     a.toolSpecs(),
-			MaxTokens: a.config.MaxTokens,
+			MaxTokens: limits.MaxTokens,
 		}
 		started := time.Now()
 		var firstToken *uint64

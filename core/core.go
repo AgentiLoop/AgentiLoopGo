@@ -35,6 +35,10 @@ type ModelInfo struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
 	CreatedAt   string `json:"created_at"`
+	// MaxInputTokens is the context window (input limit) in tokens, when the backend reports it.
+	MaxInputTokens *uint64 `json:"max_input_tokens,omitempty"`
+	// MaxTokens is the maximum output tokens per response, when the backend reports it.
+	MaxTokens *int `json:"max_tokens,omitempty"`
 }
 
 // Provider is a model backend. Implementations live in package provider.
@@ -49,6 +53,30 @@ type Provider interface {
 	// the assembled response once the stream ends. Providers without streaming can
 	// use CompleteAsStream.
 	CompleteStream(ctx context.Context, req ProviderRequest, onText func(string)) (ProviderResponse, error)
+}
+
+// ModelInfoLookup is optionally implemented by providers with a per-model
+// catalog endpoint. Others are served by LookupModelInfo scanning ListModels.
+type ModelInfoLookup interface {
+	// ModelInfo returns the catalog entry for one model id (nil when the backend doesn't know it).
+	ModelInfo(ctx context.Context, id string) (*ModelInfo, error)
+}
+
+// LookupModelInfo returns p's catalog entry for id, or nil when unknown.
+func LookupModelInfo(ctx context.Context, p Provider, id string) (*ModelInfo, error) {
+	if l, ok := p.(ModelInfoLookup); ok {
+		return l.ModelInfo(ctx, id)
+	}
+	models, err := p.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range models {
+		if models[i].ID == id {
+			return &models[i], nil
+		}
+	}
+	return nil, nil
 }
 
 // CompleteAsStream is the non-streaming fallback: it calls Complete and emits the

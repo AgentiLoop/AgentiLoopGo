@@ -18,9 +18,14 @@ type scripted struct {
 	requests  []ProviderRequest
 }
 
-func (p *scripted) Name() string                                    { return "scripted" }
-func (p *scripted) DefaultModel() string                            { return "mock" }
-func (p *scripted) ListModels(context.Context) ([]ModelInfo, error) { return nil, nil }
+func (p *scripted) Name() string         { return "scripted" }
+func (p *scripted) DefaultModel() string { return "mock" }
+
+// ListModels reports limits for `mock` only; other ids are unknown to the catalog.
+func (p *scripted) ListModels(context.Context) ([]ModelInfo, error) {
+	win, out := uint64(1_000_000), 128_000
+	return []ModelInfo{{ID: "mock", DisplayName: "Mock", MaxInputTokens: &win, MaxTokens: &out}}, nil
+}
 func (p *scripted) Complete(_ context.Context, req ProviderRequest) (ProviderResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -90,7 +95,7 @@ func cfgTurns(n int) AgentConfig {
 
 func cfgCompact(at uint64) AgentConfig {
 	c := DefaultAgentConfig()
-	c.CompactAtTokens = at
+	c.CompactAtTokens = &at
 	return c
 }
 
@@ -384,5 +389,59 @@ func TestTranscriptTrimsLongToolResults(t *testing.T) {
 	}
 	if len(tr) >= 2500 {
 		t.Fatal(len(tr))
+	}
+}
+
+func TestLimitsComeFromTheProviderCatalog(t *testing.T) {
+	p := &scripted{responses: []ProviderResponse{text("ok"), text("ok")}}
+	a := newAgent(p, AllowAll{}, cfgTurns(5))
+	if a.Limits() != nil {
+		t.Fatal("limits resolved before the first run")
+	}
+	if err, _ := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+
+	// max_tokens on the wire is the model's own cap; compaction at 80% of its window.
+	l := a.Limits()
+	if l == nil || l.MaxTokens != 128_000 || l.ContextWindow == nil || *l.ContextWindow != 1_000_000 || l.CompactAtTokens != 800_000 {
+		t.Fatalf("limits: %+v", l)
+	}
+	if got := p.reqs()[0].MaxTokens; got != 128_000 {
+		t.Fatal(got)
+	}
+
+	// Unknown model: limits are cleared and the fallbacks apply.
+	a.SetModel("other")
+	if a.Limits() != nil {
+		t.Fatal("SetModel did not clear limits")
+	}
+	if err, _ := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	l = a.Limits()
+	if l == nil || l.MaxTokens != FallbackMaxTokens || l.ContextWindow != nil || l.CompactAtTokens != FallbackCompactAt {
+		t.Fatalf("limits: %+v", l)
+	}
+	if got := p.reqs()[1].MaxTokens; got != FallbackMaxTokens {
+		t.Fatal(got)
+	}
+}
+
+func TestConfigOverridesBeatTheCatalog(t *testing.T) {
+	p := &scripted{responses: []ProviderResponse{text("ok")}}
+	maxTokens, compactAt := 1_000, uint64(0)
+	c := cfgTurns(5)
+	c.MaxTokens, c.CompactAtTokens = &maxTokens, &compactAt
+	a := newAgent(p, AllowAll{}, c)
+	if err, _ := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	l := a.Limits()
+	if l == nil || l.MaxTokens != 1_000 || l.CompactAtTokens != 0 || l.ContextWindow == nil || *l.ContextWindow != 1_000_000 {
+		t.Fatalf("limits: %+v", l)
+	}
+	if got := p.reqs()[0].MaxTokens; got != 1_000 {
+		t.Fatal(got)
 	}
 }

@@ -137,32 +137,53 @@ func (a *Anthropic) sendMessages(ctx context.Context, req core.ProviderRequest, 
 	return resp, nil
 }
 
-// ListModels fetches GET /v1/models, newest first (the API sorts by created_at descending).
-func (a *Anthropic) ListModels(ctx context.Context) ([]core.ModelInfo, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+"/v1/models?limit=100", nil)
+// getJSON is an authenticated GET of a JSON endpoint under baseURL, decoded into out.
+func (a *Anthropic) getJSON(ctx context.Context, path string, out any) error {
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	a.auth(hr, "oauth-2025-04-20")
 	resp, err := a.client.Do(hr)
 	if err != nil {
-		return nil, fmt.Errorf("request to /v1/models failed: %w", err)
+		return fmt.Errorf("request to %s failed: %w", path, err)
 	}
 	defer resp.Body.Close()
 	text, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("Anthropic %s: %s", statusText(resp), text)
+		return fmt.Errorf("Anthropic %s: %s", statusText(resp), text)
 	}
+	if err := json.Unmarshal(text, out); err != nil {
+		return fmt.Errorf("decoding %s: %w", path, err)
+	}
+	return nil
+}
+
+// ListModels fetches GET /v1/models, newest first (the API sorts by created_at descending).
+func (a *Anthropic) ListModels(ctx context.Context) ([]core.ModelInfo, error) {
 	var list struct {
 		Data []core.ModelInfo `json:"data"`
 	}
-	if err := json.Unmarshal(text, &list); err != nil {
-		return nil, fmt.Errorf("decoding /v1/models: %w", err)
+	if err := a.getJSON(ctx, "/v1/models?limit=100", &list); err != nil {
+		return nil, err
 	}
 	return list.Data, nil
+}
+
+// ModelInfo fetches GET /v1/models/{id}, which carries max_tokens and max_input_tokens.
+// Returns nil for an unknown model id.
+func (a *Anthropic) ModelInfo(ctx context.Context, id string) (*core.ModelInfo, error) {
+	var m core.ModelInfo
+	if err := a.getJSON(ctx, "/v1/models/"+id, &m); err != nil {
+		if strings.Contains(err.Error(), "not_found_error") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &m, nil
 }
 
 func (a *Anthropic) Complete(ctx context.Context, req core.ProviderRequest) (core.ProviderResponse, error) {

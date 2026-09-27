@@ -75,7 +75,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.StringVarP(&c.model, "model", "m", "", "`MODEL` id to use. Defaults to the last model used with this provider\n(~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]")
 	fs.BoolVar(&c.yes, "yes", false, "Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]")
 	fs.IntVar(&maxTurns, "max-turns", 0, "Max provider round-trips (`N`) per prompt [default: last used, then 50]")
-	fs.Uint64Var(&compactAt, "compact-at", 0, "Summarize the conversation once a request reaches this many input `TOKENS` (0 = never)\n[default: last used, then 150000] [env: AGENTILOOP_COMPACT_AT]")
+	fs.Uint64Var(&compactAt, "compact-at", 0, "Summarize the conversation once a request reaches this many input `TOKENS` (0 = never)\n[default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]")
 	fs.StringVarP(&c.cwd, "cwd", "C", "", "Working directory (`DIR`) the agent operates in (defaults to cwd)")
 	fs.StringVarP(&c.resume, "resume", "r", "", "Resume a saved session by `ID` (see /sessions)")
 	fs.BoolVarP(&c.continueLast, "continue", "c", false, "Resume the most recent session for this working directory\n(the default for interactive launches; kept for scripts)")
@@ -243,11 +243,9 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	} else if last.MaxTurns != nil {
 		maxTurns = *last.MaxTurns
 	}
-	compactAt := uint64(150_000)
-	if cli.compactAt != nil {
-		compactAt = *cli.compactAt
-	} else if last.CompactAt != nil {
-		compactAt = *last.CompactAt
+	compactAt := cli.compactAt
+	if compactAt == nil {
+		compactAt = last.CompactAt
 	}
 
 	provName := cli.provider
@@ -332,7 +330,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	saved.SetModel(prov.Name(), config.Model)
 	if interactive {
 		name := prov.Name()
-		saved.Last = LastLaunch{Provider: &name, TUI: useTUI, MaxTurns: &maxTurns, CompactAt: &compactAt}
+		saved.Last = LastLaunch{Provider: &name, TUI: useTUI, MaxTurns: &maxTurns, CompactAt: compactAt}
 	}
 	if err := saveSettings(saved); err != nil {
 		slog.Warn("could not save settings", "err", err)

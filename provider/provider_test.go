@@ -146,6 +146,33 @@ func TestAnthropicErrorBodyIsReported(t *testing.T) {
 	}
 }
 
+func TestAnthropicModelInfoCarriesLimitsAndUnknownIsNil(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/v1/models/nope" {
+			w.WriteHeader(404)
+			w.Write([]byte(`{"type":"error","error":{"type":"not_found_error","message":"model: nope"}}`))
+			return
+		}
+		w.Write([]byte(`{"id":"claude-opus-5","display_name":"Claude Opus 5","created_at":"2026-01-01T00:00:00Z","max_input_tokens":1000000,"max_tokens":128000}`))
+	}))
+	defer srv.Close()
+	p := &Anthropic{client: &http.Client{}, credential: "k", baseURL: srv.URL}
+
+	m, err := core.LookupModelInfo(context.Background(), p, "claude-opus-5")
+	if err != nil || m == nil || m.MaxInputTokens == nil || *m.MaxInputTokens != 1_000_000 || m.MaxTokens == nil || *m.MaxTokens != 128_000 {
+		t.Fatalf("%v %+v", err, m)
+	}
+	m, err = p.ModelInfo(context.Background(), "nope")
+	if err != nil || m != nil {
+		t.Fatalf("%v %+v", err, m)
+	}
+	if !reflect.DeepEqual(paths, []string{"/v1/models/claude-opus-5", "/v1/models/nope"}) {
+		t.Fatal(paths)
+	}
+}
+
 // ---- openai -------------------------------------------------------------------
 
 func TestHistoryFlattensToOpenAIRoles(t *testing.T) {
