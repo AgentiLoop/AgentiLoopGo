@@ -429,6 +429,198 @@ func TestOnlyOpenAILookingIDsAreLookedUp(t *testing.T) {
 	}
 }
 
+func TestOpenAIListModelsMissingCreatedSortsLast(t *testing.T) {
+	p := NewOpenAI("k", serveRoutes(t, map[string]string{"/models": `{"data":[{"id":"b","created":1},{"id":"a","created":5},{"id":"c","created":5},{"id":"z"}]}`}))
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	// Missing created counts as 0 → oldest.
+	if !reflect.DeepEqual(ids, []string{"a", "c", "b", "z"}) {
+		t.Fatal(ids)
+	}
+	if models[0].DisplayName != "a" || models[0].CreatedAt != "" {
+		t.Fatal(models[0])
+	}
+}
+
+func TestOpenAIListModels401NamesProviderAndHint(t *testing.T) {
+	p := NewOpenAI("k", serveOnce(t, 401, `{"error":{"message":"bad key","type":"invalid_request_error"}}`, 1000, nil))
+	_, err := p.ListModels(context.Background())
+	want := "openai 401 Unauthorized (invalid_request_error): bad key — API key missing or invalid; set OPENAI_API_KEY"
+	if err == nil || err.Error() != want {
+		t.Fatal(err)
+	}
+
+	p = NewOpenAI("k", serveOnce(t, 403, "nope", 1000, nil)).WithIdentity("omlx", "")
+	_, err = p.ListModels(context.Background())
+	want = "omlx 403 Forbidden : nope — API key missing or invalid; set OMLX_API_KEY or auth.api_key in ~/.omlx/settings.json"
+	if err == nil || err.Error() != want {
+		t.Fatal(err)
+	}
+
+	p = NewOpenAI("k", serveOnce(t, 500, `{"error":{"message":"boom"}}`, 1000, nil))
+	_, err = p.ListModels(context.Background())
+	if want = "openai 500 Internal Server Error (): boom"; err == nil || err.Error() != want {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenAIListModelsRejectsMalformedCatalog(t *testing.T) {
+	p := NewOpenAI("k", serveRoutes(t, map[string]string{"/models": `{"data":"nope"}`}))
+	_, err := p.ListModels(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "decoding /models") {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenAIModelInfoPrefersCatalogLimitsOverPublishedDocs(t *testing.T) {
+	base := serveRoutes(t, map[string]string{
+		"/models":              `{"data":[{"id":"gpt-5","context_length":1000,"top_provider":{"max_completion_tokens":10}},{"id":"gpt-4o-mini","max_model_len":100}]}`,
+		"/docs/gpt-5.md":       docGPT5,
+		"/docs/gpt-4o-mini.md": doc4oMini,
+	})
+	p := NewOpenAI("k", base)
+	p.modelDocsURL = base + "/docs"
+	// Both limits from the catalog → docs never consulted.
+	m, err := p.ModelInfo(context.Background(), "gpt-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 1000 || out != 10 {
+		t.Fatal(in, out)
+	}
+	// Catalog input only → docs fill just the output cap.
+	m, err = p.ModelInfo(context.Background(), "gpt-4o-mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 100 || out != 16_384 {
+		t.Fatal(in, out)
+	}
+}
+
+func TestOpenAIModelInfoWithoutDocPageLeavesLimitsEmpty(t *testing.T) {
+	base := serveRoutes(t, map[string]string{
+		"/models":     `{"data":[{"id":"gpt-9"},{"id":"o9-2030-01-01"},{"id":"o3"}]}`,
+		"/docs/o3.md": "- 200,000 context window\n- 100,000 max output tokens\n",
+	})
+	p := NewOpenAI("k", base)
+	p.modelDocsURL = base + "/docs"
+	// Unknown OpenAI-looking id: page 404s. Snapshot whose family page also 404s.
+	for _, id := range []string{"gpt-9", "o9-2030-01-01"} {
+		m, err := p.ModelInfo(context.Background(), id)
+		if err != nil || m.MaxInputTokens != nil || m.MaxTokens != nil {
+			t.Fatal(id, m, err)
+		}
+	}
+	// Ids shorter than a date suffix still resolve.
+	m, err := p.ModelInfo(context.Background(), "o3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 200_000 || out != 100_000 {
+		t.Fatal(in, out)
+	}
+}
+
+func TestOpenAIModelInfoDocsUnreachableIsNotAnError(t *testing.T) {
+	p := NewOpenAI("k", serveRoutes(t, map[string]string{"/models": `{"data":[{"id":"gpt-5"}]}`}))
+	p.modelDocsURL = "http://127.0.0.1:1/docs"
+	m, err := p.ModelInfo(context.Background(), "gpt-5")
+	if err != nil || m == nil || m.MaxInputTokens != nil || m.MaxTokens != nil {
+		t.Fatal(m, err)
+	}
+}
+
+func TestOpenAIOllamaContextWindowVariants(t *testing.T) {
+	probe := func(show string) *uint64 {
+		base := serveRoutes(t, map[string]string{"/api/show": show})
+		return NewOpenAI("k", base+"/v1").ollamaContextLength(context.Background(), "m")
+	}
+	cases := []struct {
+		show string
+		want uint64 // 0 = nil
+	}{
+		// Model max only.
+		{`{"model_info":{"llama.context_length":131072}}`, 131072},
+		// num_ctx only.
+		{`{"parameters":"num_ctx 4096"}`, 4096},
+		// num_ctx above the model max doesn't raise it.
+		{`{"model_info":{"llama.context_length":8192},"parameters":"num_ctx 32768"}`, 8192},
+		// Neither → unknown.
+		{`{"model_info":{"general.architecture":"llama"},"parameters":"stop \"x\""}`, 0},
+		{`{"model_info":{"llama.context_length":"big"}}`, 0},
+	}
+	for _, c := range cases {
+		got := probe(c.show)
+		if (got == nil) != (c.want == 0) || (got != nil && *got != c.want) {
+			t.Fatal(c.show, got)
+		}
+	}
+	// Not an Ollama-style base URL → no probe at all (nothing is listening on :1).
+	if NewOpenAI("k", "http://127.0.0.1:1").ollamaContextLength(context.Background(), "m") != nil {
+		t.Fatal("probed a non-/v1 base")
+	}
+	// /api/show 404 (plain OpenAI-compatible server mounted under /v1).
+	if NewOpenAI("k", serveRoutes(t, nil)+"/v1").ollamaContextLength(context.Background(), "m") != nil {
+		t.Fatal("404 should be unknown")
+	}
+}
+
+func TestModelDocParsingEdgeCases(t *testing.T) {
+	// Indented list items and thousands separators.
+	if in, out, ok := parseModelDoc("  - 1,047,576 context window\n  - 32,768 max output tokens\n"); !ok || in != 1_047_576 || out != 32_768 {
+		t.Fatal(in, out, ok)
+	}
+	// Input cap without a context window line still counts.
+	if in, out, ok := parseModelDoc("- Maximum input tokens: 272,000\n- 128,000 max output tokens\n"); !ok || in != 272_000 || out != 128_000 {
+		t.Fatal(in, out, ok)
+	}
+	for _, md := range []string{
+		// Only the list items count: a matching label in prose is ignored.
+		"128,000 context window\n16,384 max output tokens\n",
+		// A label with no number on its line yields nothing.
+		"- context window\n- 16,384 max output tokens\n",
+		// Output cap that doesn't fit a uint32 is rejected rather than truncated.
+		"- 128,000 context window\n- 5,000,000,000 max output tokens\n",
+		// Context window only, no output cap.
+		"- Maximum input tokens: 272,000\n",
+	} {
+		if _, _, ok := parseModelDoc(md); ok {
+			t.Fatal(md)
+		}
+	}
+}
+
+func TestSnapshotDateShape(t *testing.T) {
+	for _, s := range []string{"2024-09-12", "2025-04-16", "0000-00-00"} {
+		if !isSnapshotDate(s) {
+			t.Fatal(s)
+		}
+	}
+	for _, s := range []string{"2024-9-12", "2024/09/12", "2024-09-12x", "24-09-12", "abcd-ef-gh", ""} {
+		if isSnapshotDate(s) {
+			t.Fatal(s)
+		}
+	}
+}
+
+func TestOpenAIIdentityAndDefaultModel(t *testing.T) {
+	p := NewOpenAI(" k ", "http://x/v1/")
+	if p.Name() != "openai" || p.DefaultModel() != "gpt-4o-mini" || p.apiKey != "k" || p.baseURL != "http://x/v1" {
+		t.Fatal(p.Name(), p.DefaultModel(), p.apiKey, p.baseURL)
+	}
+	p = p.WithIdentity("omlx", "")
+	if p.Name() != "omlx" || p.DefaultModel() != "" {
+		t.Fatal(p.Name(), p.DefaultModel())
+	}
+}
+
 func TestFinishReasonMapping(t *testing.T) {
 	s := func(v string) *string { return &v }
 	cases := []struct {
