@@ -299,8 +299,9 @@ func connect(ctx context.Context, p prompter) (*connected, error) {
 			"  1  Claude (Anthropic) — API key from console.anthropic.com\n" +
 			"  2  OpenAI — API key from platform.openai.com\n" +
 			"  3  Ollama, LM Studio or another OpenAI-compatible server (local, usually no key)\n" +
-			"  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)")
-		choice, err := choose(p, "Provider", 4, 1)
+			"  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)\n" +
+			"  5  Codex — your ChatGPT Plus/Pro plan (sign in first with `codex login`)")
+		choice, err := choose(p, "Provider", 5, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +333,7 @@ func connect(ctx context.Context, p prompter) (*connected, error) {
 			if key != "" {
 				vars = append(vars, [2]string{"OPENAI_API_KEY", key})
 			}
-		default:
+		case 4:
 			name = "omlx"
 			home, _ := os.UserHomeDir()
 			if _, err := os.Stat(filepath.Join(home, ".omlx", "settings.json")); err != nil {
@@ -342,6 +343,9 @@ func connect(ctx context.Context, p prompter) (*connected, error) {
 				}
 				vars = [][2]string{{"OMLX_BASE_URL", url}}
 			}
+		default:
+			// Tokens come from ~/.codex/auth.json; nothing to store here.
+			name = "codex"
 		}
 		empty := false
 		for _, kv := range vars {

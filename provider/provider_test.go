@@ -686,6 +686,8 @@ func TestFromEnvPicksProvider(t *testing.T) {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
 	}
+	// No auth.json from `codex login` either.
+	t.Setenv("CODEX_HOME", t.TempDir())
 	if _, err := FromEnv(""); err == nil || !strings.Contains(err.Error(), "no provider credentials") {
 		t.Fatal(err)
 	}

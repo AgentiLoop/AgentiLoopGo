@@ -1,5 +1,6 @@
 // Package provider holds the model backends: Anthropic Messages API, OpenAI-compatible
-// Chat Completions (OpenAI, Ollama, LM Studio, Groq, OpenRouter, …), and oMLX (local MLX server).
+// Chat Completions (OpenAI, Ollama, LM Studio, Groq, OpenRouter, …), oMLX (local MLX server),
+// and Codex (ChatGPT subscription via `codex login`).
 package provider
 
 import (
@@ -11,11 +12,12 @@ import (
 	"github.com/AgentiLoop/AgentiLoopGo/core"
 )
 
-// FromEnv builds a provider by name ("anthropic" | "openai" | "omlx"), or picks
-// one from the environment when name is empty: Anthropic if ANTHROPIC_API_KEY /
-// ANTHROPIC_OAUTH_TOKEN is set, otherwise OpenAI if OPENAI_API_KEY or
-// OPENAI_BASE_URL is set, otherwise oMLX if OMLX_BASE_URL / OMLX_PORT /
-// OMLX_API_KEY is set.
+// FromEnv builds a provider by name ("anthropic" | "openai" | "omlx" | "codex"),
+// or picks one from the environment when name is empty: Anthropic if
+// ANTHROPIC_API_KEY / ANTHROPIC_OAUTH_TOKEN is set, otherwise OpenAI if
+// OPENAI_API_KEY or OPENAI_BASE_URL is set, otherwise oMLX if OMLX_BASE_URL /
+// OMLX_PORT / OMLX_API_KEY is set, otherwise Codex if `codex login` has left an
+// auth.json behind.
 func FromEnv(name string) (core.Provider, error) {
 	has := func(k string) bool { return os.Getenv(k) != "" }
 	switch {
@@ -28,7 +30,11 @@ func FromEnv(name string) (core.Provider, error) {
 	case has("OMLX_BASE_URL") || has("OMLX_PORT") || has("OMLX_API_KEY"):
 		name = "omlx"
 	default:
-		return nil, errors.New("no provider credentials found: set ANTHROPIC_API_KEY, OPENAI_API_KEY / OPENAI_BASE_URL (e.g. http://localhost:11434/v1 for Ollama), or use `-p omlx` for a local oMLX server; run `agentiloop --setup` for a guided setup")
+		if _, err := CodexFromEnv(); err == nil {
+			name = "codex"
+			break
+		}
+		return nil, errors.New("no provider credentials found: set ANTHROPIC_API_KEY, OPENAI_API_KEY / OPENAI_BASE_URL (e.g. http://localhost:11434/v1 for Ollama), use `-p omlx` for a local oMLX server, or run `codex login` and use `-p codex` for your ChatGPT plan; run `agentiloop --setup` for a guided setup")
 	}
 	switch name {
 	case "anthropic":
@@ -37,6 +43,8 @@ func FromEnv(name string) (core.Provider, error) {
 		return OpenAIFromEnv()
 	case "omlx":
 		return OMLXFromEnv()
+	case "codex":
+		return CodexFromEnv()
 	}
-	return nil, fmt.Errorf("unknown provider `%s` (expected anthropic, openai, or omlx)", name)
+	return nil, fmt.Errorf("unknown provider `%s` (expected anthropic, openai, omlx, or codex)", name)
 }

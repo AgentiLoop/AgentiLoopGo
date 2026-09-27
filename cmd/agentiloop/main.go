@@ -71,7 +71,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	var c cliArgs
 	var maxTurns int
 	var compactAt uint64
-	fs.StringVarP(&c.provider, "provider", "p", "", "Model backend (`PROVIDER`): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,\nLM Studio, Groq, OpenRouter, … via OPENAI_BASE_URL), or omlx (local\noMLX server, http://localhost:8000/v1). Defaults to the last one used,\nthen auto-detected from which credentials are set. [env: AGENTILOOP_PROVIDER]")
+	fs.StringVarP(&c.provider, "provider", "p", "", "Model backend (`PROVIDER`): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,\nLM Studio, Groq, OpenRouter, … via OPENAI_BASE_URL), omlx (local\noMLX server, http://localhost:8000/v1), or codex (ChatGPT plan via\n`codex login`). Defaults to the last one used, then auto-detected from\nwhich credentials are set. [env: AGENTILOOP_PROVIDER]")
 	fs.StringVarP(&c.model, "model", "m", "", "`MODEL` id to use. Defaults to the last model used with this provider\n(~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]")
 	fs.BoolVar(&c.yes, "yes", false, "Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]")
 	fs.IntVar(&maxTurns, "max-turns", 0, "Max provider round-trips (`N`) per prompt [default: last used, then 50]")
@@ -257,6 +257,10 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		return nil, err
 	}
 	registry := tools.DefaultRegistry()
+	// Codex models are trained on apply_patch; other providers keep the plain edit tools.
+	if prov.Name() == "codex" {
+		registry.Register(tools.ApplyPatch{})
+	}
 	mcp.Version = version
 	mgr := &mcp.Manager{}
 	if !cli.noMCP {

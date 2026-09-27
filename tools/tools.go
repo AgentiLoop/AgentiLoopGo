@@ -1,4 +1,5 @@
-// Package tools holds the built-in tools: read_file, write_file, edit_file, list_dir, bash.
+// Package tools holds the built-in tools: read_file, write_file, edit_file, list_dir, bash,
+// and apply_patch (registered for the Codex provider, whose models are trained on it).
 package tools
 
 import (
