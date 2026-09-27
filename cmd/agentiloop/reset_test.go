@@ -26,6 +26,16 @@ func TestRemoveBlockKeepsEverythingElse(t *testing.T) {
 	}
 }
 
+func TestCRLFProfilesStayCRLF(t *testing.T) {
+	crlf := "a\r\n# >>> agentiloop >>>\r\nexport OPENAI_API_KEY=x\r\n# <<< agentiloop <<<\r\nb\r\n"
+	if got := matchLineEndings(crlf, removeBlock(crlf)); got != "a\r\nb\r\n" {
+		t.Fatalf("%q", got)
+	}
+	if got := matchLineEndings("a\nb\n", "a\nb\n"); got != "a\nb\n" {
+		t.Fatalf("%q", got)
+	}
+}
+
 func TestCommentOut(t *testing.T) {
 	out := commentOut("a\nexport OPENAI_API_KEY=x\nb\n", []int{2})
 	if out != "a\n# agentiloop-reset: export OPENAI_API_KEY=x\nb\n" || len(strayLines(out)) != 0 {

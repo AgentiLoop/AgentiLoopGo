@@ -118,6 +118,15 @@ func hasBlock(text string) bool {
 	return false
 }
 
+// matchLineEndings re-applies the original file's line endings: a CRLF profile
+// (Windows PowerShell, Git autocrlf) stays CRLF instead of being silently rewritten as LF.
+func matchLineEndings(original, text string) string {
+	if !strings.Contains(original, "\r\n") {
+		return text
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
+}
+
 // removeBlock drops everything from blockStart through blockEnd (inclusive).
 func removeBlock(text string) string {
 	var b strings.Builder
@@ -320,7 +329,7 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, []byte(removeBlock(string(data))), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(matchLineEndings(string(data), removeBlock(string(data)))), 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", p, err)
 		}
 		fmt.Fprintf(out, "removed block from %s\n", p)
@@ -336,7 +345,7 @@ func runReset(yes bool, in io.Reader, out io.Writer) error {
 			for _, l := range strayLines(string(data)) {
 				nums = append(nums, l.n)
 			}
-			if err := os.WriteFile(f.path, []byte(commentOut(string(data), nums)), 0o644); err != nil {
+			if err := os.WriteFile(f.path, []byte(matchLineEndings(string(data), commentOut(string(data), nums))), 0o644); err != nil {
 				return fmt.Errorf("writing %s: %w", f.path, err)
 			}
 			fmt.Fprintf(out, "commented out %d line(s) in %s\n", len(f.lines), f.path)
