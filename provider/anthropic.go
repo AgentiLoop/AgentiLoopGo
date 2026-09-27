@@ -296,6 +296,7 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 		}
 	}
 
+	parsedStop := parseStopReason(stopReason)
 	var content []core.ContentBlock
 	for _, b := range blocks {
 		switch b.kind {
@@ -306,6 +307,9 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 			input := json.RawMessage("{}")
 			if raw != "" {
 				if !json.Valid([]byte(raw)) {
+					if parsedStop == core.StopMaxTokens {
+						return core.ProviderResponse{}, fmt.Errorf("response hit max_tokens (%d) mid `%s` call; raise max_tokens or ask for smaller edits", req.MaxTokens, b.name)
+					}
 					return core.ProviderResponse{}, fmt.Errorf("decoding tool input for `%s`: invalid JSON", b.name)
 				}
 				input = json.RawMessage(raw)
@@ -315,7 +319,7 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 	}
 	return core.ProviderResponse{
 		Message:      core.Message{Role: core.RoleAssistant, Content: content},
-		StopReason:   parseStopReason(stopReason),
+		StopReason:   parsedStop,
 		InputTokens:  inTok,
 		OutputTokens: outTok,
 	}, nil
