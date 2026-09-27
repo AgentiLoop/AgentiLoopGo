@@ -30,7 +30,7 @@ Go で書かれていて、macOS、Linux、Windows で動作します。[AgentiL
 
 AgentiLoop Agent! で作られました。私たちの自慢の子です。macOS、Linux、Windows 向けのビルド済みバイナリは [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) ページにあります。Go を使ってソースからコンパイルすることもできます。
 
-<img width="2048" height="1152" alt="AgentiLoop がコーディングしている様子" src="https://github.com/user-attachments/assets/d910bbd2-b47d-4c4a-89af-ac0753ccf279" />
+<img src="docs/pong.png" width="900" alt="AgentiLoop がひとつのプロンプトから SwiftUI で Atari 風の Pong ゲームを書き、ビルドし、起動する様子。ライブ差分と実行中のゲームウィンドウ" />
 
 ---
 

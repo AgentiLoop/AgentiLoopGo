@@ -30,7 +30,7 @@ It's written in Go and runs on macOS, Linux and Windows. It is the Go twin of [A
 
 Created with AgentiLoop Agent! This is our baby. Prebuilt binaries for macOS, Linux and Windows are on the [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) page, or compile it from source with Go.
 
-<img width="2048" height="1152" alt="AgentiLoop Coding in action" src="https://github.com/user-attachments/assets/d910bbd2-b47d-4c4a-89af-ac0753ccf279" />
+<img src="docs/pong.png" width="900" alt="AgentiLoop writing, building and launching an Atari-style Pong game in SwiftUI from a single prompt, with the live diff and the running game window" />
 
 ---
 
