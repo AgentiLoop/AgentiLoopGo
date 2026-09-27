@@ -12,19 +12,20 @@ import (
 )
 
 func TestProfileForShellAndOS(t *testing.T) {
-	if p, _ := profileFor("/bin/zsh", "/h", true); p != "/h/.zshrc" {
+	slash := func(p string) string { return filepath.ToSlash(p) }
+	if p, _ := profileFor("/bin/zsh", "/h", true); slash(p) != "/h/.zshrc" {
 		t.Fatal(p)
 	}
-	if p, _ := profileFor("/bin/bash", "/h", true); p != "/h/.bash_profile" {
+	if p, _ := profileFor("/bin/bash", "/h", true); slash(p) != "/h/.bash_profile" {
 		t.Fatal(p)
 	}
-	if p, _ := profileFor("/usr/bin/bash", "/h", false); p != "/h/.bashrc" {
+	if p, _ := profileFor("/usr/bin/bash", "/h", false); slash(p) != "/h/.bashrc" {
 		t.Fatal(p)
 	}
-	if p, k := profileFor("/opt/fish", "/h", false); p != "/h/.config/fish/config.fish" || k != shellFish {
+	if p, k := profileFor("/opt/fish", "/h", false); slash(p) != "/h/.config/fish/config.fish" || k != shellFish {
 		t.Fatal(p, k)
 	}
-	if p, k := profileFor("/usr/bin/pwsh", "/h", false); p != "/h/.config/powershell/profile.ps1" || k != shellPowerShell {
+	if p, k := profileFor("/usr/bin/pwsh", "/h", false); slash(p) != "/h/.config/powershell/profile.ps1" || k != shellPowerShell {
 		t.Fatal(p, k)
 	}
 	if p, _ := profileFor("/bin/tcsh", "/h", false); p != "" {

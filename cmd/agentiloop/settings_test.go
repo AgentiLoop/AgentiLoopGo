@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,7 @@ func TestEnvFileRoundTripAndPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(p); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", st.Mode())
 	}
 	loadEnvFile()

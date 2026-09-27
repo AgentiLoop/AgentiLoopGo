@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -63,7 +64,11 @@ func TestRunResetEndToEnd(t *testing.T) {
 	if hasBlock(string(got)) || !strings.Contains(string(got), "# agentiloop-reset: export OPENAI_BASE_URL") || !strings.Contains(string(got), "alias ll") {
 		t.Fatalf("%s", got)
 	}
-	if !strings.Contains(out.String(), "unset ANTHROPIC_API_KEY") {
+	unsetHint := "unset ANTHROPIC_API_KEY"
+	if runtime.GOOS == "windows" {
+		unsetHint = "Remove-Item Env:ANTHROPIC_API_KEY"
+	}
+	if !strings.Contains(out.String(), unsetHint) {
 		t.Fatal(out.String())
 	}
 
