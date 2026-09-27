@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
@@ -294,6 +295,14 @@ func (o *OpenAI) ListModels(ctx context.Context) ([]core.ModelInfo, error) {
 		Data []struct {
 			ID      string `json:"id"`
 			Created uint64 `json:"created"`
+			// OpenRouter: context window.
+			ContextLength *uint64 `json:"context_length"`
+			// vLLM and oMLX: context window.
+			MaxModelLen *uint64 `json:"max_model_len"`
+			// OpenRouter: output cap lives under top_provider.
+			TopProvider *struct {
+				MaxCompletionTokens *int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(text, &list); err != nil {
@@ -308,9 +317,136 @@ func (o *OpenAI) ListModels(ctx context.Context) ([]core.ModelInfo, error) {
 	})
 	out := make([]core.ModelInfo, 0, len(list.Data))
 	for _, m := range list.Data {
-		out = append(out, core.ModelInfo{ID: m.ID, DisplayName: m.ID})
+		info := core.ModelInfo{ID: m.ID, DisplayName: m.ID, MaxInputTokens: m.ContextLength}
+		if info.MaxInputTokens == nil {
+			info.MaxInputTokens = m.MaxModelLen
+		}
+		if m.TopProvider != nil {
+			info.MaxTokens = m.TopProvider.MaxCompletionTokens
+		}
+		out = append(out, info)
 	}
 	return out, nil
+}
+
+// ModelInfo scans /models (OpenRouter, vLLM and oMLX report limits there),
+// then asks Ollama's /api/show for the context window when the catalog didn't
+// carry one, and finally fills in OpenAI's published limits.
+func (o *OpenAI) ModelInfo(ctx context.Context, id string) (*core.ModelInfo, error) {
+	models, err := o.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var info *core.ModelInfo
+	for i := range models {
+		if models[i].ID == id {
+			info = &models[i]
+			break
+		}
+	}
+	if info == nil {
+		return nil, nil
+	}
+	if info.MaxInputTokens == nil {
+		info.MaxInputTokens = o.ollamaContextLength(ctx, id)
+	}
+	if input, output, ok := openAILimits(id); ok {
+		if info.MaxInputTokens == nil {
+			info.MaxInputTokens = &input
+		}
+		if info.MaxTokens == nil {
+			info.MaxTokens = &output
+		}
+	}
+	return info, nil
+}
+
+// ollamaContextLength: Ollama (local or ollama.com) mounts its native API
+// beside /v1: POST /api/show reports the model's context window under
+// model_info["<family>.context_length"], capped by a num_ctx Modelfile
+// parameter when set. Any other server 404s → nil.
+func (o *OpenAI) ollamaContextLength(ctx context.Context, id string) *uint64 {
+	root, ok := strings.CutSuffix(o.baseURL, "/v1")
+	if !ok {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]string{"model": id})
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	hr.Header.Set("authorization", "Bearer "+o.apiKey)
+	hr.Header.Set("content-type", "application/json")
+	resp, err := o.client.Do(hr)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil
+	}
+	var show struct {
+		ModelInfo  map[string]json.RawMessage `json:"model_info"`
+		Parameters string                     `json:"parameters"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&show) != nil {
+		return nil
+	}
+	var modelMax, numCtx *uint64
+	for k, v := range show.ModelInfo {
+		var n uint64
+		if strings.HasSuffix(k, ".context_length") && json.Unmarshal(v, &n) == nil {
+			modelMax = &n
+			break
+		}
+	}
+	for _, line := range strings.Split(show.Parameters, "\n") {
+		words := strings.Fields(line)
+		if len(words) >= 2 && words[0] == "num_ctx" {
+			if n, err := strconv.ParseUint(words[1], 10, 64); err == nil {
+				numCtx = &n
+			}
+			break
+		}
+	}
+	if modelMax != nil && numCtx != nil {
+		n := min(*modelMax, *numCtx)
+		return &n
+	}
+	if modelMax != nil {
+		return modelMax
+	}
+	return numCtx
+}
+
+// openAILimits returns the published (context window, max output) for
+// OpenAI's own models, which /models doesn't report. Longest matching prefix wins.
+func openAILimits(id string) (input uint64, output int, ok bool) {
+	table := []struct {
+		prefix string
+		input  uint64
+		output int
+	}{
+		{"gpt-5", 400_000, 128_000},
+		{"gpt-4.1", 1_047_576, 32_768},
+		{"gpt-4o", 128_000, 16_384},
+		{"gpt-4-turbo", 128_000, 4_096},
+		{"gpt-3.5-turbo", 16_385, 4_096},
+		{"o1-mini", 128_000, 65_536},
+		{"o1", 200_000, 100_000},
+		{"o3", 200_000, 100_000},
+		{"o4-mini", 200_000, 100_000},
+	}
+	best := -1
+	for i, row := range table {
+		if strings.HasPrefix(id, row.prefix) && (best < 0 || len(row.prefix) > len(table[best].prefix)) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return 0, 0, false
+	}
+	return table[best].input, table[best].output, true
 }
 
 func (o *OpenAI) Complete(ctx context.Context, req core.ProviderRequest) (core.ProviderResponse, error) {

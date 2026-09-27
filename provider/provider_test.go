@@ -297,6 +297,102 @@ func TestOpenAIListModelsNewestFirst(t *testing.T) {
 	}
 }
 
+// serveRoutes serves canned JSON bodies keyed by request path (404 otherwise).
+func serveRoutes(t *testing.T, routes map[string]string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := routes[r.URL.Path]
+		if !ok {
+			w.WriteHeader(404)
+			body = "{}"
+		}
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func limits(m *core.ModelInfo) (in uint64, out int) {
+	if m.MaxInputTokens != nil {
+		in = *m.MaxInputTokens
+	}
+	if m.MaxTokens != nil {
+		out = *m.MaxTokens
+	}
+	return in, out
+}
+
+func TestOpenAIListModelsReadsLimitsReportedByCatalog(t *testing.T) {
+	// OpenRouter shape (context_length + top_provider) and vLLM/oMLX shape (max_model_len).
+	base := serveRoutes(t, map[string]string{
+		"/models": `{"data":[{"id":"a","context_length":131072,"top_provider":{"max_completion_tokens":8192}},{"id":"b","max_model_len":32768}]}`,
+	})
+	models, err := NewOpenAI("k", base).ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(&models[0]); in != 131072 || out != 8192 {
+		t.Fatal(in, out)
+	}
+	if in, out := limits(&models[1]); in != 32768 || models[1].MaxTokens != nil {
+		t.Fatal(in, out)
+	}
+}
+
+func TestOpenAIModelInfoAsksOllamaForContextWindowCappedByNumCtx(t *testing.T) {
+	base := serveRoutes(t, map[string]string{
+		"/v1/models": `{"data":[{"id":"qwen3:4b"}]}`,
+		"/api/show":  `{"model_info":{"qwen3.context_length":262144},"parameters":"stop \"x\"\nnum_ctx 8192"}`,
+	})
+	p := NewOpenAI("k", base+"/v1")
+	m, err := p.ModelInfo(context.Background(), "qwen3:4b")
+	if err != nil || m == nil {
+		t.Fatal(m, err)
+	}
+	if in, _ := limits(m); in != 8192 || m.MaxTokens != nil {
+		t.Fatal(in, m.MaxTokens)
+	}
+	if m, err := p.ModelInfo(context.Background(), "missing"); err != nil || m != nil {
+		t.Fatal(m, err)
+	}
+}
+
+func TestOpenAIModelInfoFillsInPublishedLimits(t *testing.T) {
+	// No /v1 suffix, so no Ollama probe; /models carries no limits.
+	base := serveRoutes(t, map[string]string{"/models": `{"data":[{"id":"gpt-4o-mini"},{"id":"llama3"}]}`})
+	p := NewOpenAI("k", base)
+	m, err := p.ModelInfo(context.Background(), "gpt-4o-mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in, out := limits(m); in != 128_000 || out != 16_384 {
+		t.Fatal(in, out)
+	}
+	m, err = p.ModelInfo(context.Background(), "llama3")
+	if err != nil || m.MaxInputTokens != nil || m.MaxTokens != nil {
+		t.Fatal(m, err)
+	}
+}
+
+func TestOpenAILimitsPreferLongestPrefix(t *testing.T) {
+	cases := []struct {
+		id  string
+		in  uint64
+		out int
+		ok  bool
+	}{
+		{"o1-mini-2024-09-12", 128_000, 65_536, true},
+		{"o1-preview", 200_000, 100_000, true},
+		{"gpt-4.1-nano", 1_047_576, 32_768, true},
+		{"gpt-oss:120b", 0, 0, false},
+	}
+	for _, c := range cases {
+		if in, out, ok := openAILimits(c.id); in != c.in || out != c.out || ok != c.ok {
+			t.Fatal(c.id, in, out, ok)
+		}
+	}
+}
+
 func TestFinishReasonMapping(t *testing.T) {
 	s := func(v string) *string { return &v }
 	cases := []struct {
