@@ -2,6 +2,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -47,12 +48,23 @@ func ToolResultBlock(toolUseID, content string, isError bool) ContentBlock {
 	return ContentBlock{Type: BlockToolResult, ToolUseID: toolUseID, Content: content, IsError: isError}
 }
 
+// marshalNoEscape encodes v like serde_json: <, > and & are not HTML-escaped.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
 // MarshalJSON emits `{"type":"text","text":…}`, `{"type":"tool_use",…}` or
 // `{"type":"tool_result",…}` — the same shape the Rust version stores in sessions.
 func (b ContentBlock) MarshalJSON() ([]byte, error) {
 	switch b.Type {
 	case BlockText:
-		return json.Marshal(struct {
+		return marshalNoEscape(struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}{b.Type, b.Text})
@@ -61,14 +73,14 @@ func (b ContentBlock) MarshalJSON() ([]byte, error) {
 		if len(input) == 0 {
 			input = json.RawMessage("{}")
 		}
-		return json.Marshal(struct {
+		return marshalNoEscape(struct {
 			Type  string          `json:"type"`
 			ID    string          `json:"id"`
 			Name  string          `json:"name"`
 			Input json.RawMessage `json:"input"`
 		}{b.Type, b.ID, b.Name, input})
 	case BlockToolResult:
-		return json.Marshal(struct {
+		return marshalNoEscape(struct {
 			Type      string `json:"type"`
 			ToolUseID string `json:"tool_use_id"`
 			Content   string `json:"content"`

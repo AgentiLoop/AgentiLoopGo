@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,16 +66,22 @@ outer:
 func SessionPath(dir, id string) string { return filepath.Join(dir, id+".json") }
 
 // Save writes <dir>/<id>.json (via a temp file + rename so a crash never leaves
-// a half-written session) and bumps Updated.
+// a half-written session) and bumps Updated. Like the Rust CLI (serde_json
+// pretty), <, > and & are written as-is, not HTML-escaped.
 func (s *Session) Save(dir string) (string, error) {
 	s.Updated = now()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(s); err != nil {
 		return "", err
 	}
+	data := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+
 	path := SessionPath(dir, s.ID)
 	tmp := filepath.Join(dir, "."+s.ID+".json.tmp")
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
