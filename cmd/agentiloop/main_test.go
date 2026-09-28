@@ -12,6 +12,7 @@ import (
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
 	"github.com/AgentiLoop/AgentiLoopGo/mcp"
+	"github.com/peterh/liner"
 )
 
 func TestRateExcludesTimeToFirstToken(t *testing.T) {
@@ -227,6 +228,16 @@ func TestInteractivePolicyPrompts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "⚠ bash wants to run:\n{\n  \"command\": \"ls\"\n}") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestCtrlCAtPermissionPromptCancelsTheRequest(t *testing.T) {
+	cancelled := false
+	p := &interactivePolicy{always: map[string]bool{}, out: &bytes.Buffer{},
+		ask:    func(string) (string, error) { return "", liner.ErrPromptAborted },
+		cancel: func() { cancelled = true }}
+	if p.Check(context.Background(), "bash", true, json.RawMessage(`{}`)) != core.Deny || !cancelled {
+		t.Fatal("Ctrl-C at the prompt should cancel the whole request")
 	}
 }
 

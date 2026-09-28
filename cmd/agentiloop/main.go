@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -188,11 +189,12 @@ func run() error {
 	// startup messages go through it; without it they go to the terminal.
 	q := newUIQueue()
 	submit := make(chan string, 1)
+	cancel := make(chan struct{}, 1)
 	var uiDone chan error
 	if useTUI {
 		app := NewApp(fmt.Sprintf(" AgentiLoop  %s ", cwd)).WithHistoryFile(historyPath())
 		uiDone = make(chan error, 1)
-		go func() { uiDone <- runTUI(app, q, submit) }()
+		go func() { uiDone <- runTUI(app, q, submit, cancel) }()
 	}
 	note := func(s string) {
 		if useTUI {
@@ -224,7 +226,7 @@ func run() error {
 		return err
 	}
 	if useTUI {
-		return runTUIMode(ctx, st, q, submit, uiDone, cwd)
+		return runTUIMode(ctx, st, q, submit, cancel, uiDone, cwd)
 	}
 	return runREPL(ctx, st, cwd)
 }
@@ -367,7 +369,7 @@ type cmdState struct {
 	setup prompter
 }
 
-func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan string, uiDone <-chan error, cwd string) error {
+func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan string, cancel <-chan struct{}, uiDone <-chan error, cwd string) error {
 	status := func() string {
 		return fmt.Sprintf(" AgentiLoop  %s  %s  %s  session %s ", cwd, st.provider.Name(), st.agent.Model(), st.session.ID)
 	}
@@ -409,7 +411,9 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 					q.Send(uiDiff{*change})
 				}
 			}
-			if err := st.agent.Run(ctx, line, onEvent); err != nil {
+			if cancelled, err := runCancellable(ctx, st.agent, line, onEvent, cancel); cancelled {
+				q.Send(uiLine{"Cancelled. Session kept; send your next prompt."})
+			} else if err != nil {
 				q.Send(uiError{err.Error()})
 			}
 			st.persist()
@@ -418,6 +422,30 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 	}
 	q.Close()
 	return <-uiDone
+}
+
+// runCancellable runs one prompt until it finishes or a signal arrives on cancel
+// (Esc in the TUI). Cancelling stops the provider call and any running tool; the
+// agent keeps its history, so the session continues with the next prompt.
+func runCancellable(ctx context.Context, agent *core.Agent, line string, onEvent func(core.Event), cancel <-chan struct{}) (bool, error) {
+	// Drop an Esc that arrived after the previous run had already finished.
+	select {
+	case <-cancel:
+	default:
+	}
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-cancel:
+			stop()
+		case <-done:
+		}
+	}()
+	err := agent.Run(runCtx, line, onEvent)
+	return err != nil && runCtx.Err() != nil && ctx.Err() == nil, err
 }
 
 func runREPL(ctx context.Context, st *cmdState, cwd string) error {
@@ -470,7 +498,20 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			}
 			continue
 		}
-		if err := st.agent.Run(ctx, line, renderLine); err != nil {
+		// Line mode has no raw keyboard during a run, so Ctrl-C is its cancel key:
+		// a signal while the agent works, or Ctrl-C at a permission prompt.
+		sigCtx, stopSig := signal.NotifyContext(ctx, os.Interrupt)
+		runCtx, stop := context.WithCancel(sigCtx)
+		if p, ok := st.agent.Policy().(*interactivePolicy); ok {
+			p.cancel = stop
+		}
+		err = st.agent.Run(runCtx, line, renderLine)
+		cancelled := runCtx.Err() != nil && ctx.Err() == nil
+		stop()
+		stopSig()
+		if cancelled {
+			fmt.Fprintln(os.Stderr, "\ncancelled; session kept")
+		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 		st.persist()

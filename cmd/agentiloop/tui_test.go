@@ -247,18 +247,40 @@ func TestBlankLineInTextRendersAsOneBlankRow(t *testing.T) {
 	}
 }
 
-func TestEscInPermissionModalCancelsJustThatCall(t *testing.T) {
+func TestEscInPermissionModalCancelsRequest(t *testing.T) {
 	a := NewApp("s")
 	req := &PermissionRequest{Tool: "bash", Input: "{}", Reply: make(chan Answer, 1)}
 	a.Apply(uiPermission{req})
-	if !strings.Contains(screen(t, a, 70, 12), "[esc] skip") {
+	if !strings.Contains(screen(t, a, 90, 12), "[esc] cancel request") {
 		t.Fatal("modal")
 	}
-	if a.HandleKey(key(tcell.KeyEscape)) != nil || a.modal != nil || a.Quit() {
+	if _, ok := a.HandleKey(key(tcell.KeyEscape)).(actCancel); !ok || a.modal != nil || a.Quit() {
 		t.Fatal("esc")
 	}
-	if <-req.Reply != AnswerCancel {
-		t.Fatal("answer")
+	// The agent stops waiting through its cancelled context, not a reply.
+	if len(req.Reply) != 0 {
+		t.Fatal("unexpected answer")
+	}
+}
+
+func TestEscPreservesTranscriptAndDraftAndAllowsNextPrompt(t *testing.T) {
+	a := NewApp("session original")
+	typeStr(a, "first request")
+	a.HandleKey(key(tcell.KeyEnter))
+	a.Apply(uiEvent{core.EvTextDelta{Text: "partial answer"}})
+	typeStr(a, "next request")
+	if _, ok := a.HandleKey(key(tcell.KeyEscape)).(actCancel); !ok || !a.busy || a.Quit() {
+		t.Fatal("esc while busy should cancel, not quit")
+	}
+	a.Apply(uiIdle{})
+	if a.entries[1].text != "partial answer" || a.status != "session original" {
+		t.Fatalf("transcript lost: %+v", a.entries)
+	}
+	if a.HandleKey(key(tcell.KeyEscape)) != nil {
+		t.Fatal("esc while idle is a no-op")
+	}
+	if act, ok := a.HandleKey(key(tcell.KeyEnter)).(actSubmit); !ok || act.Line != "next request" {
+		t.Fatalf("draft not kept: %#v", act)
 	}
 }
 
@@ -436,7 +458,7 @@ func TestBusyTitleAnimatesWithElapsedTime(t *testing.T) {
 	a.HandleKey(key(tcell.KeyEnter))
 	a.now = func() time.Time { return start.Add(75 * time.Second) }
 	title := a.busyTitle().Text()
-	if !strings.Contains(title, "Thinking") || !strings.Contains(title, "1m 15s") {
+	if !strings.Contains(title, "Thinking") || !strings.Contains(title, "1m 15s") || !strings.Contains(title, "esc to cancel") {
 		t.Fatal(title)
 	}
 	a.Apply(uiEvent{core.EvToolCall{ID: "1", Name: "bash", Input: json.RawMessage(`{}`)}})

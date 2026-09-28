@@ -121,6 +121,8 @@ type Agent struct {
 	History  []Message
 	// lastInputTokens: input tokens reported by the most recent provider response.
 	lastInputTokens uint64
+	// pendingText: text received from the current stream but not yet committed to history.
+	pendingText strings.Builder
 	// limits resolved from the provider catalog for config.Model; cleared on SetModel.
 	limits *ModelLimits
 }
@@ -180,7 +182,49 @@ func (a *Agent) ResolveLimits(ctx context.Context) ModelLimits {
 // Clear drops all conversation context and tool history.
 func (a *Agent) Clear() {
 	a.History = nil
+	a.pendingText.Reset()
 	a.lastInputTokens = 0
+}
+
+// interruptedResult is recorded for tool calls a cancelled run never answered.
+const interruptedResult = "Interrupted by user; execution may be incomplete. Do not assume changes were undone."
+
+// Interrupt finishes a cancelled run: it keeps completed work, commits any
+// partially streamed text, and pairs every outstanding tool call so the next
+// request is valid. Run calls it itself when its context is cancelled.
+func (a *Agent) Interrupt() {
+	if a.pendingText.Len() > 0 {
+		a.History = append(a.History, Message{Role: RoleAssistant, Content: []ContentBlock{TextBlock(a.pendingText.String())}})
+		a.pendingText.Reset()
+	}
+	i := len(a.History) - 1
+	for i >= 0 && a.History[i].Role != RoleAssistant {
+		i--
+	}
+	if i < 0 {
+		return
+	}
+	answered := map[string]bool{}
+	for _, m := range a.History[i+1:] {
+		for _, b := range m.Content {
+			if b.Type == BlockToolResult {
+				answered[b.ToolUseID] = true
+			}
+		}
+	}
+	var missing []ContentBlock
+	for _, c := range a.History[i].ToolUses() {
+		if !answered[c.ID] {
+			missing = append(missing, ToolResultBlock(c.ID, interruptedResult, true))
+		}
+	}
+	switch {
+	case len(missing) == 0:
+	case len(a.History) == i+1:
+		a.History = append(a.History, ToolResults(missing))
+	default:
+		a.History[i+1].Content = append(a.History[i+1].Content, missing...)
+	}
 }
 
 func (a *Agent) shouldCompact() bool {
@@ -255,6 +299,13 @@ func budgetRequest(req *ProviderRequest, limits ModelLimits) error {
 
 // Run is the core agentic loop: send → if tool_use, execute tools, append results, repeat.
 func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) error {
+	a.pendingText.Reset()
+	// A cancelled run (Esc) keeps the session: finish the history so it stays usable.
+	defer func() {
+		if ctx.Err() != nil {
+			a.Interrupt()
+		}
+	}()
 	limits := a.ResolveLimits(ctx)
 	if a.shouldCompact() {
 		ev, err := a.Compact(ctx)
@@ -285,11 +336,13 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 				ms := uint64(time.Since(started).Milliseconds())
 				firstToken = &ms
 			}
+			a.pendingText.WriteString(delta)
 			onEvent(EvTextDelta{delta})
 		})
 		if err != nil {
 			return err
 		}
+		a.pendingText.Reset()
 		a.lastInputTokens = resp.InputTokens
 		onEvent(EvTurnComplete{resp.InputTokens, resp.OutputTokens, uint64(time.Since(started).Milliseconds()), firstToken})
 
@@ -304,8 +357,13 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			return nil
 		}
 
-		results := make([]ContentBlock, 0, len(calls))
+		// Results land in history as each call finishes, so a cancel keeps finished work.
+		a.History = append(a.History, ToolResults(make([]ContentBlock, 0, len(calls))))
+		last := len(a.History) - 1
 		for _, c := range calls {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			onEvent(EvToolCall{c.ID, c.Name, c.Input})
 			output, isError := "", false
 			if out, err := a.execute(ctx, c.Name, c.Input); err != nil {
@@ -313,10 +371,13 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			} else {
 				output = out
 			}
+			// Cancelled mid-call: Interrupt records it as interrupted, not as its partial output.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			onEvent(EvToolResult{c.ID, c.Name, output, isError})
-			results = append(results, ToolResultBlock(c.ID, output, isError))
+			a.History[last].Content = append(a.History[last].Content, ToolResultBlock(c.ID, output, isError))
 		}
-		a.History = append(a.History, ToolResults(results))
 
 		if a.shouldCompact() {
 			ev, err := a.Compact(ctx)

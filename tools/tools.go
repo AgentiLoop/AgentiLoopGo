@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -271,7 +272,8 @@ func (Bash) Call(ctx context.Context, tc core.ToolContext, input json.RawMessage
 		return "", core.Failed("timed out after %ds", a.TimeoutSecs)
 	}
 	exitCode := 0
-	if err != nil {
+	// ErrWaitDelay: the shell exited, but a background child still held the pipes.
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		ee, ok := err.(*exec.ExitError)
 		if !ok {
 			return "", ioErr(err)

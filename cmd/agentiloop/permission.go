@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
+	"github.com/peterh/liner"
 )
 
 func newPolicy(yes bool) core.PermissionPolicy {
@@ -30,6 +32,8 @@ type interactivePolicy struct {
 	out    io.Writer
 	// ask, when set (REPL), reads the answer through the line editor that owns stdin.
 	ask func(prompt string) (string, error)
+	// cancel, when set (REPL), stops the whole request: Ctrl-C at the prompt.
+	cancel func()
 }
 
 func prettyJSON(raw json.RawMessage) string {
@@ -50,7 +54,12 @@ func (p *interactivePolicy) Check(_ context.Context, tool string, mutating bool,
 	question := fmt.Sprintf("Allow? [y]es / [n]o / [a]lways for `%s`: ", tool)
 	var line string
 	if p.ask != nil {
-		line, _ = p.ask(question)
+		var err error
+		line, err = p.ask(question)
+		if errors.Is(err, liner.ErrPromptAborted) && p.cancel != nil {
+			p.cancel()
+			return core.Deny
+		}
 	} else {
 		fmt.Fprint(p.out, question)
 		line, _ = readLineFrom(p.in)

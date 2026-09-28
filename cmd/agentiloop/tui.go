@@ -218,8 +218,10 @@ type linkHit struct {
 type Action interface{ isAction() }
 
 type (
-	actSubmit  struct{ Line string }
-	actQuit    struct{}
+	actSubmit struct{ Line string }
+	actQuit   struct{}
+	// actCancel: Esc while the agent works; stop this request, keep the session.
+	actCancel  struct{}
 	actOpenURL struct{ URL string }
 	// actCopy: a mouse drag ended; copy the selection from the screen.
 	actCopy struct{}
@@ -227,6 +229,7 @@ type (
 
 func (actSubmit) isAction()  {}
 func (actQuit) isAction()    {}
+func (actCancel) isAction()  {}
 func (actOpenURL) isAction() {}
 func (actCopy) isAction()    {}
 
@@ -349,6 +352,9 @@ func (a *App) Apply(msg UiMsg) {
 		a.status = m.Text
 	case uiIdle:
 		a.busy = false
+		a.modal = nil
+		a.streaming = false
+		a.pendingPaths = map[string]string{}
 	case uiAsk:
 		a.busy = false
 		a.asking, a.askSecret = true, m.Secret
@@ -484,6 +490,12 @@ func firstLines(s string, n int) []string {
 
 func (a *App) HandleKey(ev *tcell.EventKey) Action {
 	a.sel = nil
+	// Esc cancels the whole request (including an open permission prompt), not the app.
+	if ev.Key() == tcell.KeyEscape && (a.busy || a.modal != nil) {
+		a.modal = nil
+		a.activity = "Cancelling"
+		return actCancel{}
+	}
 	if req := a.modal; req != nil {
 		var ans Answer
 		switch {
@@ -493,8 +505,6 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 			ans = AnswerAlways
 		case ev.Key() == tcell.KeyRune && (ev.Rune() == 'n' || ev.Rune() == 'N'):
 			ans = AnswerDeny
-		case ev.Key() == tcell.KeyEscape:
-			ans = AnswerCancel
 		default:
 			return nil
 		}
@@ -784,7 +794,7 @@ func (a *App) Draw(s tcell.Screen) {
 	if a.speed != "" {
 		bar = append(bar, styled("⏱ "+a.speed+" ", fg(tcell.ColorGreen)))
 	}
-	bar = append(bar, styled("  Enter send · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
+	bar = append(bar, styled("  Enter send · Esc cancel · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
 	rev := tcell.StyleDefault.Reverse(true)
 	fill(s, 0, h-1, w, 1, rev)
 	for i := range bar {
@@ -823,7 +833,7 @@ var spinner = []string{"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "�
 var dots = []string{"   ", ".  ", ".. ", "..."}
 
 // busyTitle is the animated prompt-box title while the agent works, e.g.
-// " ✻ Thinking...  12s ". The UI loop redraws every 50 ms, so the frame is
+// " ✻ Thinking...  12s · esc to cancel ". The UI loop redraws every 50 ms, so the frame is
 // derived from elapsed time.
 func (a *App) busyTitle() Line {
 	ms := a.now().Sub(a.busySince).Milliseconds()
@@ -835,11 +845,16 @@ func (a *App) busyTitle() Line {
 		elapsed = fmt.Sprintf("%dm %02ds", secs/60, secs%60)
 	}
 	accent := fg(tcell.NewRGBColor(0xE0, 0x8A, 0x5B)).Bold(true)
-	return Line{
+	title := Line{
 		styled(" "+spin+" ", accent),
 		styled(a.activity+d+" ", accent),
 		styled(elapsed+" ", fg(tcell.ColorGray)),
 	}
+	// Always visible while working, unlike the help line that long status text can push off screen.
+	if a.activity != "Cancelling" {
+		title = append(title, styled("· esc to cancel ", fg(tcell.ColorGray)))
+	}
+	return title
 }
 
 func (a *App) drawTranscript(s tcell.Screen, x, y, w, h int) {
@@ -1018,7 +1033,7 @@ func (a *App) drawModal(s tcell.Screen, sw, sh int) {
 	}
 	row++
 	if row < y+h-1 {
-		drawLine(s, x+1, row, w-2, Line{styled(fmt.Sprintf("[y]es  [n]o  [a]lways for `%s`  [esc] skip", req.Tool), tcell.StyleDefault.Bold(true))})
+		drawLine(s, x+1, row, w-2, Line{styled(fmt.Sprintf("[y]es  [n]o  [a]lways for `%s`  [esc] cancel request", req.Tool), tcell.StyleDefault.Bold(true))})
 	}
 }
 
@@ -1095,7 +1110,7 @@ hunks:
 
 // runTUI is the blocking UI loop: drains agent messages, redraws, and forwards
 // submitted lines. Runs until the user quits or the agent side hangs up.
-func runTUI(app *App, q *uiQueue, submit chan<- string) error {
+func runTUI(app *App, q *uiQueue, submit chan<- string, cancel chan<- struct{}) error {
 	s, err := tcell.NewScreen()
 	if err != nil {
 		return err
@@ -1152,6 +1167,12 @@ func runTUI(app *App, q *uiQueue, submit chan<- string) error {
 				return nil
 			case actSubmit:
 				submit <- a.Line
+			case actCancel:
+				// Buffered and non-blocking: a second Esc before the agent reacts is a no-op.
+				select {
+				case cancel <- struct{}{}:
+				default:
+				}
 			case actCopy:
 				if err := copyToClipboard(s, app.SelectedText(s)); err != nil {
 					app.Apply(uiError{fmt.Sprintf("could not copy: %v", err)})
