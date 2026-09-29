@@ -23,7 +23,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const version = "0.0.3"
+const version = "0.0.4"
 
 type cliArgs struct {
 	provider, model, cwd, resume              string
