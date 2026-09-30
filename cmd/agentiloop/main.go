@@ -331,6 +331,11 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	}
 	config := core.DefaultAgentConfig()
 	config.Model, config.MaxTurns, config.CompactAtTokens = model, maxTurns, compactAt
+	instructions := core.LoadInstructions(cwd, agentiloopHome())
+	for _, i := range instructions {
+		note("instructions: " + i.Path)
+	}
+	config.SystemPrompt = core.AppendInstructions(config.SystemPrompt, instructions)
 
 	// Remember this launch (model per provider always; UI options only for interactive runs).
 	saved.SetModel(prov.Name(), config.Model)
