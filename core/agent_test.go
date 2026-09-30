@@ -449,3 +449,28 @@ func TestConfigOverridesBeatTheCatalog(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestUsageAccumulatesAcrossRequestsAndSurvivesClear(t *testing.T) {
+	p := &scripted{responses: []ProviderResponse{toolCall("t1", "echo", `{"msg":"x"}`), text("done"), text("SUMMARY")}}
+	a := newAgent(p, AllowAll{}, cfgTurns(5))
+	if a.Usage() != (Usage{}) {
+		t.Fatal(a.Usage())
+	}
+	if err, _ := collect(a, "go"); err != nil {
+		t.Fatal(err)
+	}
+	if u := a.Usage(); u != (Usage{Requests: 2, InputTokens: 20, OutputTokens: 10}) {
+		t.Fatalf("%+v", u)
+	}
+	// A compaction request is spent tokens too.
+	if _, err := a.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if u := a.Usage(); u != (Usage{Requests: 3, InputTokens: 30, OutputTokens: 15}) {
+		t.Fatalf("%+v", u)
+	}
+	a.Clear()
+	if a.Usage().Requests != 3 {
+		t.Fatal("Clear must keep the running total")
+	}
+}

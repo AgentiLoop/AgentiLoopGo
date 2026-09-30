@@ -112,6 +112,13 @@ func (EvTurnComplete) isEvent() {}
 func (EvCompacted) isEvent()    {}
 func (EvDone) isEvent()         {}
 
+// Usage is the tokens an agent has spent since it was created (compaction summaries included).
+type Usage struct {
+	Requests     uint64
+	InputTokens  uint64
+	OutputTokens uint64
+}
+
 type Agent struct {
 	provider Provider
 	tools    *ToolRegistry
@@ -121,6 +128,7 @@ type Agent struct {
 	History  []Message
 	// lastInputTokens: input tokens reported by the most recent provider response.
 	lastInputTokens uint64
+	usage           Usage
 	// pendingText: text received from the current stream but not yet committed to history.
 	pendingText strings.Builder
 	// limits resolved from the provider catalog for config.Model; cleared on SetModel.
@@ -131,9 +139,19 @@ func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config A
 	return &Agent{provider: p, tools: tools, policy: policy, config: config, tc: tc}
 }
 
-func (a *Agent) Model() string            { return a.config.Model }
-func (a *Agent) SetModel(m string)        { a.config.Model = m; a.limits = nil }
-func (a *Agent) LastInputTokens() uint64  { return a.lastInputTokens }
+func (a *Agent) Model() string           { return a.config.Model }
+func (a *Agent) SetModel(m string)       { a.config.Model = m; a.limits = nil }
+func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
+
+// Usage returns the tokens spent since this agent was created; Clear does not reset it.
+func (a *Agent) Usage() Usage { return a.usage }
+
+func (a *Agent) addUsage(input, output uint64) {
+	a.usage.Requests++
+	a.usage.InputTokens += input
+	a.usage.OutputTokens += output
+}
+
 func (a *Agent) Provider() Provider       { return a.provider }
 func (a *Agent) Tools() *ToolRegistry     { return a.tools }
 func (a *Agent) Policy() PermissionPolicy { return a.policy }
@@ -254,6 +272,7 @@ func (a *Agent) Compact(ctx context.Context) (*EvCompacted, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.addUsage(resp.InputTokens, resp.OutputTokens)
 	summary := resp.Message.Text()
 	if strings.TrimSpace(summary) == "" {
 		return nil, errors.New("compaction produced an empty summary")
@@ -344,6 +363,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 		}
 		a.pendingText.Reset()
 		a.lastInputTokens = resp.InputTokens
+		a.addUsage(resp.InputTokens, resp.OutputTokens)
 		onEvent(EvTurnComplete{resp.InputTokens, resp.OutputTokens, uint64(time.Since(started).Milliseconds()), firstToken})
 
 		if text := resp.Message.Text(); text != "" {

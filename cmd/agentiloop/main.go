@@ -629,6 +629,7 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 
 const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
+	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/undo           revert the file changes from the last prompt\n" +
@@ -696,6 +697,16 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(fmt.Sprintf("warning: could not save settings: %v", err))
 		}
 		say("model: " + agent.Model())
+	case "/usage":
+		u := agent.Usage()
+		say(usageLine(u.Requests, u.InputTokens, u.OutputTokens))
+		if last := agent.LastInputTokens(); last > 0 {
+			if l := agent.Limits(); l != nil && l.ContextWindow != nil && *l.ContextWindow > 0 {
+				say(fmt.Sprintf("context: %d of %d tokens (%d%%)", last, *l.ContextWindow, last*100 / *l.ContextWindow))
+			} else {
+				say(fmt.Sprintf("context: %d tokens", last))
+			}
+		}
 	case "/export":
 		st.session.History = append([]core.Message(nil), agent.History...)
 		if len(st.session.History) == 0 {
@@ -816,6 +827,11 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say(fmt.Sprintf("unknown command %s (try /help)", cmd))
 	}
 	return nil
+}
+
+// usageLine is the first line of /usage: tokens spent since agentiloop started.
+func usageLine(requests, input, output uint64) string {
+	return fmt.Sprintf("%d request(s) since start: %d input + %d output = %d tokens", requests, input, output, input+output)
 }
 
 func compactedLine(beforeTokens uint64, messagesDropped int) string {

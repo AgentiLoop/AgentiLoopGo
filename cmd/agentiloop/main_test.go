@@ -259,3 +259,9 @@ func TestHistoryFileFormats(t *testing.T) {
 		t.Fatal("missing file")
 	}
 }
+
+func TestUsageLineTotalsTokens(t *testing.T) {
+	if got := usageLine(3, 1200, 340); got != "3 request(s) since start: 1200 input + 340 output = 1540 tokens" {
+		t.Fatal(got)
+	}
+}
