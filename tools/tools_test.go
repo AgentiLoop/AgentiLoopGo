@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -156,15 +158,15 @@ func TestBashTimesOut(t *testing.T) {
 
 func TestDefaultRegistryHasAllBuiltins(t *testing.T) {
 	r := DefaultRegistry()
-	if r.Len() != 7 {
+	if r.Len() != 8 {
 		t.Fatal(r.Len())
 	}
-	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "web_fetch", "bash"} {
 		if _, ok := r.Get(name); !ok {
 			t.Fatal("missing", name)
 		}
 	}
-	for name, want := range map[string]bool{"read_file": false, "list_dir": false, "glob": false, "grep": false, "write_file": true, "edit_file": true, "bash": true} {
+	for name, want := range map[string]bool{"read_file": false, "list_dir": false, "glob": false, "grep": false, "web_fetch": true, "write_file": true, "edit_file": true, "bash": true} {
 		if tool, _ := r.Get(name); tool.IsMutating() != want {
 			t.Fatalf("%s mutating = %v", name, !want)
 		}
@@ -385,5 +387,87 @@ func TestGrepContextLinesMergeAndSeparateGroups(t *testing.T) {
 	out, err = call(t, Grep{}, d, `{"pattern":"HIT","context":0,"path":"b.txt"}`)
 	if err != nil || out != "b.txt:1:HIT" {
 		t.Fatalf("%v %q", err, out)
+	}
+}
+
+func TestHTMLToText(t *testing.T) {
+	html := "<!doctype html><html><head><title>T</title><style>p{color:red}</style>" +
+		"<script>var x = '<p>no</p>';</script></head><body><!-- hidden -->" +
+		"<h1>Hello &amp; welcome</h1><p>One  <b>bold</b>\ttext&nbsp;here.</p><ul><li>a &lt;b&gt;</li><li>&#65;&#x42;&quot;</li></ul>" +
+		"<div><br></div><div>end</div></body></html>"
+	if got, want := htmlToText(html), "T\nHello & welcome\n\nOne bold text here.\n\na <b>\n\nAB\"\n\nend"; got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := htmlToText("<p>&bogus; &#99999999999;</p>"); got != "&bogus; &#99999999999;" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func fetchServer(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/page", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, "<html><body><h1>Hi</h1><script>bad()</script><p>there &amp; back</p></body></html>")
+	})
+	mux.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"a": 1}`)
+	})
+	mux.HandleFunc("/img", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		fmt.Fprint(w, "PNG")
+	})
+	mux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, strings.Repeat("x", 5000))
+	})
+	mux.HandleFunc("/go", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/page", http.StatusFound) })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestWebFetchReadsHTMLJSONAndFollowsRedirects(t *testing.T) {
+	base := fetchServer(t)
+	d := t.TempDir()
+	out, err := call(t, WebFetch{}, d, `{"url":"`+base+`/page"}`)
+	if err != nil || !strings.HasSuffix(out, "(200 OK)\n\nHi\n\nthere & back") {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, err = call(t, WebFetch{}, d, `{"url":"`+base+`/go"}`)
+	if err != nil || !strings.HasSuffix(out, "Hi\n\nthere & back") {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, err = call(t, WebFetch{}, d, `{"url":"`+base+`/data"}`)
+	if err != nil || !strings.HasSuffix(out, "\n\n{\"a\": 1}") {
+		t.Fatalf("%v %q", err, out)
+	}
+}
+
+func TestWebFetchRefusesBadInputErrorsAndBinaryAndTruncates(t *testing.T) {
+	base := fetchServer(t)
+	d := t.TempDir()
+	for _, u := range []string{"ftp://example.com/x", "not a url", "file:///etc/passwd"} {
+		_, err := call(t, WebFetch{}, d, `{"url":"`+u+`"}`)
+		if !core.IsToolError(err, core.ErrInvalidInput) {
+			t.Fatalf("%s: %#v", u, err)
+		}
+	}
+	if _, err := call(t, WebFetch{}, d, `{}`); !core.IsToolError(err, core.ErrInvalidInput) {
+		t.Fatalf("%#v", err)
+	}
+	if _, err := call(t, WebFetch{}, d, `{"url":"`+base+`/missing"}`); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatal(err)
+	}
+	if _, err := call(t, WebFetch{}, d, `{"url":"`+base+`/img"}`); err == nil || !strings.Contains(err.Error(), "image/png") {
+		t.Fatal(err)
+	}
+	out, err := call(t, WebFetch{}, d, `{"url":"`+base+`/big","max_chars":100}`)
+	if err != nil || !strings.HasSuffix(out, strings.Repeat("x", 100)+"\n…[truncated at 100 characters]") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if _, err := call(t, WebFetch{}, d, `{"url":"http://127.0.0.1:1/"}`); !core.IsToolError(err, core.ErrFailed) {
+		t.Fatalf("%#v", err)
 	}
 }

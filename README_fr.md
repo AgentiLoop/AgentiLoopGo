@@ -199,7 +199,7 @@ agentiloop "explain what this project does"
 
 ### Que sait-il faire ? (outils)
 
-L'agent travaille avec sept outils intégrés. Vous ne les appelez pas vous-même. Vous décrivez l'objectif, et l'agent choisit l'outil :
+L'agent travaille avec huit outils intégrés. Vous ne les appelez pas vous-même. Vous décrivez l'objectif, et l'agent choisit l'outil :
 
 | Outil | Ce qu'il fait | Demande avant ? |
 |---|---|---|
@@ -207,6 +207,7 @@ L'agent travaille avec sept outils intégrés. Vous ne les appelez pas vous-mêm
 | `list_dir` | Liste les fichiers d'un dossier | Non |
 | `glob` | Trouve des fichiers par motif de nom (`*.rs`, `src/**/*.go`) | Non |
 | `grep` | Cherche dans les fichiers avec une expression régulière | Non |
+| `web_fetch` | Récupère une page web ou une réponse d'API en texte brut | **Oui** |
 | `write_file` | Crée un nouveau fichier ou en écrase un | **Oui** |
 | `edit_file` | Modifie un passage de texte précis dans un fichier | **Oui** |
 | `bash` | Lance une commande shell, comme des tests, des builds ou `git` (`sh -c` sur Mac/Linux, `cmd /C` sur Windows) | **Oui** |
@@ -554,7 +555,7 @@ Le projet est découpé en cinq packages, et chacun s'appuie sur les précédent
 |---|---|
 | `core` | Le cœur : la boucle de l'agent, les messages, les interfaces des outils et des fournisseurs, les permissions, les sessions, les résumés |
 | `provider` | Parle aux modèles : Anthropic, serveurs compatibles OpenAI, oMLX |
-| `tools` | Outils intégrés : `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `bash` |
+| `tools` | Outils intégrés : `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `web_fetch`, `bash` |
 | `mcp` | Le client MCP, porté depuis AgentMCP, le code Swift d'Agent! |
 | `cmd/agentiloop` | Le programme `agentiloop` : options, chat, TUI, réglages |
 
