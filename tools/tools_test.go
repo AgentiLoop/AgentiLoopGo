@@ -368,3 +368,22 @@ func TestGlobAndGrepHonorNestedGitignore(t *testing.T) {
 		t.Fatalf("%v %q", err, out)
 	}
 }
+
+func TestGrepContextLinesMergeAndSeparateGroups(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "a.txt"), []byte("1\n2\nHIT\n4\nHIT\n6\n7\n8\n9\nHIT\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "b.txt"), []byte("HIT\nz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := call(t, Grep{}, d, `{"pattern":"HIT","context":1}`)
+	want := "a.txt-2-2\na.txt:3:HIT\na.txt-4-4\na.txt:5:HIT\na.txt-6-6\n--\na.txt-9-9\na.txt:10:HIT\n--\nb.txt:1:HIT\nb.txt-2-z"
+	if err != nil || out != want {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, err = call(t, Grep{}, d, `{"pattern":"HIT","context":0,"path":"b.txt"}`)
+	if err != nil || out != "b.txt:1:HIT" {
+		t.Fatalf("%v %q", err, out)
+	}
+}

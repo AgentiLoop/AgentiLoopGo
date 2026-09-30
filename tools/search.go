@@ -24,6 +24,7 @@ const (
 	defaultGrepResults = 200
 	maxGrepResults     = 2000
 	maxLineChars       = 300
+	maxContext         = 5
 	maxFileBytes       = 2 * 1024 * 1024
 )
 
@@ -330,7 +331,7 @@ type Grep struct{}
 func (Grep) Name() string { return "grep" }
 func (Grep) Description() string {
 	return "Search file contents with a regular expression (RE2-style syntax). Searches recursively, skipping .git, " +
-		"node_modules, target, anything listed in .gitignore, binary and very large files. Returns `path:line:text` for each matching line. " +
+		"node_modules, target, anything listed in .gitignore, binary and very large files. Returns `path:line:text` for each matching line (set `context` to also see surrounding lines). " +
 		"Use `glob` to restrict which files are searched (same syntax as the glob tool)."
 }
 func (Grep) InputSchema() any {
@@ -340,6 +341,7 @@ func (Grep) InputSchema() any {
 		"glob":             map[string]any{"type": "string", "description": "Only search files matching this glob, e.g. `*.rs`"},
 		"case_insensitive": map[string]any{"type": "boolean", "default": false},
 		"max_results":      map[string]any{"type": "integer", "description": "Maximum matching lines to return", "default": 200},
+		"context":          map[string]any{"type": "integer", "description": "Lines of context to show before and after each match (0-5). Context lines print as `path-line-text`, groups are separated by `--`", "default": 0},
 	}, "pattern")
 }
 func (Grep) IsMutating() bool { return false }
@@ -359,6 +361,7 @@ func (Grep) Call(_ context.Context, tc core.ToolContext, input json.RawMessage) 
 		Glob            *string `json:"glob"`
 		CaseInsensitive bool    `json:"case_insensitive"`
 		MaxResults      *int    `json:"max_results"`
+		Context         int     `json:"context"`
 	}{Path: "."}
 	if err := parse(input, &a, "pattern"); err != nil {
 		return "", err
@@ -390,7 +393,15 @@ func (Grep) Call(_ context.Context, tc core.ToolContext, input json.RawMessage) 
 	if a.Glob != nil {
 		filter = newGlob(*a.Glob)
 	}
+	context := a.Context
+	if context < 0 {
+		context = 0
+	}
+	if context > maxContext {
+		context = maxContext
+	}
 	var hits []string
+	count := 0
 	more := false
 	search := func(abs, rel string) bool {
 		if filter != nil && !filter.matches(rel) {
@@ -412,16 +423,59 @@ func (Grep) Call(_ context.Context, tc core.ToolContext, input json.RawMessage) 
 		}
 		shown := display(tc, abs)
 		text := strings.ToValidUTF8(string(data), "\uFFFD")
-		for i, line := range splitLines(text) {
+		lines := splitLines(text)
+		var matched []int
+		keepGoing := true
+		for i, line := range lines {
 			if re.MatchString(line) {
-				if len(hits) == limit {
+				if count == limit {
 					more = true
-					return false
+					keepGoing = false
+					break
 				}
-				hits = append(hits, fmt.Sprintf("%s:%d:%s", shown, i+1, truncateLine(line)))
+				count++
+				matched = append(matched, i)
 			}
 		}
-		return true
+		if len(matched) == 0 {
+			return keepGoing
+		}
+		if context == 0 {
+			for _, i := range matched {
+				hits = append(hits, fmt.Sprintf("%s:%d:%s", shown, i+1, truncateLine(lines[i])))
+			}
+			return keepGoing
+		}
+		if len(hits) > 0 {
+			hits = append(hits, "--")
+		}
+		isMatch := make(map[int]bool, len(matched))
+		for _, m := range matched {
+			isMatch[m] = true
+		}
+		next := 0 // first line not yet printed
+		for _, m := range matched {
+			from := m - context
+			if from < next {
+				from = next
+			}
+			if next > 0 && from > next {
+				hits = append(hits, "--")
+			}
+			to := m + context
+			if to > len(lines)-1 {
+				to = len(lines) - 1
+			}
+			for j := from; j <= to; j++ {
+				sep := "-"
+				if isMatch[j] {
+					sep = ":"
+				}
+				hits = append(hits, fmt.Sprintf("%s%s%d%s%s", shown, sep, j+1, sep, truncateLine(lines[j])))
+			}
+			next = to + 1
+		}
+		return keepGoing
 	}
 	if fi.Mode().IsRegular() {
 		search(root, filepath.Base(root))
