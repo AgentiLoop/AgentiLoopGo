@@ -121,3 +121,30 @@ func TestLoadMissingSessionErrorsWithID(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMarkdownExportHasSectionsToolsAndSafeFences(t *testing.T) {
+	s := NewSession("/work/app", "anthropic", "m1")
+	s.ID = "S1"
+	s.History = []Message{
+		UserText("Fix the bug\nplease"),
+		{Role: RoleAssistant, Content: []ContentBlock{TextBlock("Looking."), ToolUseBlock("t1", "read_file", json.RawMessage(`{"path": "a.rs"}`))}},
+		ToolResults([]ContentBlock{ToolResultBlock("t1", "code with ``` inside", false)}),
+		{Role: RoleAssistant, Content: []ContentBlock{ToolUseBlock("t2", "bash", json.RawMessage(`{"command":"x"}`))}},
+		ToolResults([]ContentBlock{ToolResultBlock("t2", strings.Repeat("y", 2500), true)}),
+		{Role: RoleAssistant, Content: []ContentBlock{TextBlock("Done.")}},
+	}
+	md := s.ToMarkdown()
+	head := "# Fix the bug\n\n- Session: S1\n- Provider: anthropic · Model: m1\n- Directory: /work/app\n\n## You\n\nFix the bug\nplease\n\n## AgentiLoop\n\nLooking.\n\n**Tool: `read_file`**\n\n```json\n{\"path\":\"a.rs\"}\n```\n\n**Result**\n\n````\ncode with ``` inside\n````\n"
+	if !strings.HasPrefix(md, head) {
+		t.Fatal(md)
+	}
+	if strings.Count(md, "## AgentiLoop") != 1 {
+		t.Fatal("section header repeated")
+	}
+	if !strings.Contains(md, "**Error**") || !strings.Contains(md, strings.Repeat("y", 2000)+"\n…[truncated]") || !strings.HasSuffix(md, "\nDone.\n") {
+		t.Fatal(md)
+	}
+	if !strings.HasPrefix(NewSession("/x", "p", "m").ToMarkdown(), "# AgentiLoop session\n") {
+		t.Fatal("empty title")
+	}
+}

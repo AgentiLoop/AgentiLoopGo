@@ -155,3 +155,89 @@ func LatestSessionFor(dir, cwd string) (*Session, error) {
 	}
 	return nil, nil
 }
+
+// exportResultChars: tool output longer than this is cut in an export.
+const exportResultChars = 2000
+
+// fenced is a code block whose fence is longer than any backtick run inside body.
+func fenced(lang, body string) string {
+	longest, run := 0, 0
+	for _, c := range body {
+		if c == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	n := longest + 1
+	if n < 3 {
+		n = 3
+	}
+	fence := strings.Repeat("`", n)
+	return fence + lang + "\n" + body + "\n" + fence
+}
+
+// exportJSON re-encodes raw JSON with sorted keys and no HTML escaping, like serde_json::to_string.
+func exportJSON(raw json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return string(raw)
+	}
+	b, err := marshalNoEscape(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(b)
+}
+
+// ToMarkdown renders the conversation as Markdown: a header, then "## You" / "## AgentiLoop"
+// sections with tool calls and (cut) results in code blocks.
+func (s *Session) ToMarkdown() string {
+	title := s.Title()
+	if title == "" {
+		title = "AgentiLoop session"
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "# %s\n\n- Session: %s\n- Provider: %s · Model: %s\n- Directory: %s\n", title, s.ID, s.Provider, s.Model, s.Cwd)
+	var section Role
+	for _, m := range s.History {
+		hasText := false
+		for _, b := range m.Content {
+			hasText = hasText || b.Type == BlockText
+		}
+		if hasText && section != m.Role {
+			if m.Role == RoleUser {
+				out.WriteString("\n## You\n")
+			} else {
+				out.WriteString("\n## AgentiLoop\n")
+			}
+			section = m.Role
+		}
+		for _, b := range m.Content {
+			switch b.Type {
+			case BlockText:
+				fmt.Fprintf(&out, "\n%s\n", strings.TrimRight(b.Text, " \t\r\n"))
+			case BlockToolUse:
+				input := b.Input
+				if len(input) == 0 {
+					input = json.RawMessage("{}")
+				}
+				fmt.Fprintf(&out, "\n**Tool: `%s`**\n\n%s\n", b.Name, fenced("json", exportJSON(input)))
+			case BlockToolResult:
+				body := b.Content
+				if utf8.RuneCountInString(body) > exportResultChars {
+					body = string([]rune(body)[:exportResultChars]) + "\n…[truncated]"
+				}
+				label := "Result"
+				if b.IsError {
+					label = "Error"
+				}
+				fmt.Fprintf(&out, "\n**%s**\n\n%s\n", label, fenced("", body))
+			}
+		}
+	}
+	return out.String()
+}

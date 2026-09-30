@@ -629,6 +629,7 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 
 const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
+	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/undo           revert the file changes from the last prompt\n" +
 	"/compact        summarize the conversation to free context\n" +
@@ -695,6 +696,24 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(fmt.Sprintf("warning: could not save settings: %v", err))
 		}
 		say("model: " + agent.Model())
+	case "/export":
+		st.session.History = append([]core.Message(nil), agent.History...)
+		if len(st.session.History) == 0 {
+			say("nothing to export yet")
+			break
+		}
+		path := filepath.Join(st.session.Cwd, "agentiloop-"+st.session.ID+".md")
+		if arg != "" {
+			path = arg
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(st.session.Cwd, arg)
+			}
+		}
+		if err := os.WriteFile(path, []byte(st.session.ToMarkdown()), 0o644); err != nil {
+			say(fmt.Sprintf("could not write %s: %v", path, err))
+			break
+		}
+		say("exported the conversation to " + path)
 	case "/init":
 		path, err := core.InitInstructions(st.session.Cwd)
 		if err != nil {
