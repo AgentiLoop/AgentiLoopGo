@@ -85,3 +85,52 @@ func AppendInstructions(base string, found []Instructions) string {
 	}
 	return b.String()
 }
+
+// InitTemplate is a starter AGENTS.md for the project in dir, with build/test commands guessed from the files present.
+func InitTemplate(dir string) string {
+	name := filepath.Base(dir)
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = "this project"
+	}
+	has := func(f string) bool { _, err := os.Stat(filepath.Join(dir, f)); return err == nil }
+	var cmds []string
+	if has("Cargo.toml") {
+		cmds = append(cmds, "cargo build", "cargo test", "cargo clippy")
+	}
+	if has("go.mod") {
+		cmds = append(cmds, "go build ./...", "go test ./...", "go vet ./...")
+	}
+	if has("package.json") {
+		cmds = append(cmds, "npm install", "npm test")
+	}
+	if has("pyproject.toml") || has("requirements.txt") {
+		cmds = append(cmds, "python -m pytest")
+	}
+	if has("Makefile") {
+		cmds = append(cmds, "make")
+	}
+	commands := "- (add the commands to build, test and lint this project)"
+	if len(cmds) > 0 {
+		lines := make([]string, len(cmds))
+		for i, c := range cmds {
+			lines[i] = "- `" + c + "`"
+		}
+		commands = strings.Join(lines, "\n")
+	}
+	return "# " + name + "\n\nInstructions for AgentiLoop and other coding agents working in this repository.\n\n" +
+		"## Commands\n\n" + commands + "\n\n" +
+		"## Conventions\n\n- (code style, naming, where new code goes)\n\n" +
+		"## Do not\n\n- (things to avoid: generated files, secrets, risky commands)\n"
+}
+
+// InitInstructions creates AGENTS.md in dir from InitTemplate. It refuses to overwrite an existing file.
+func InitInstructions(dir string) (string, error) {
+	path := filepath.Join(dir, InstructionFileNames[0])
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("%s already exists", path)
+	}
+	if err := os.WriteFile(path, []byte(InitTemplate(dir)), 0o644); err != nil {
+		return "", fmt.Errorf("could not write %s: %v", path, err)
+	}
+	return path, nil
+}

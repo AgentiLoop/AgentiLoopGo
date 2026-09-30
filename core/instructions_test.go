@@ -69,3 +69,28 @@ func TestInstructionsUserFirstAndLongFilesCut(t *testing.T) {
 		t.Fatal("base changed")
 	}
 }
+
+func TestInitWritesTemplateWithDetectedCommandsAndNeverOverwrites(t *testing.T) {
+	d := t.TempDir()
+	write(t, filepath.Join(d, "go.mod"), "module x")
+	write(t, filepath.Join(d, "Makefile"), "")
+	path, err := InitInstructions(d)
+	if err != nil || path != filepath.Join(d, "AGENTS.md") {
+		t.Fatal(path, err)
+	}
+	b, _ := os.ReadFile(path)
+	text := string(b)
+	if !strings.Contains(text, "`go test ./...`") || !strings.Contains(text, "- `make`") || strings.Contains(text, "cargo") ||
+		!strings.HasPrefix(text, "# "+filepath.Base(d)+"\n") {
+		t.Fatal(text)
+	}
+	if _, err := InitInstructions(d); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatal(err)
+	}
+	if got := LoadInstructions(d, ""); len(got) != 1 || got[0].Text != text {
+		t.Fatalf("%#v", got)
+	}
+	if !strings.Contains(InitTemplate(t.TempDir()), "(add the commands") {
+		t.Fatal("empty project template")
+	}
+}

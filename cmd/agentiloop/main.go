@@ -629,6 +629,7 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 
 const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
+	"/init           create a starter AGENTS.md for this project\n" +
 	"/undo           revert the file changes from the last prompt\n" +
 	"/compact        summarize the conversation to free context\n" +
 	"/sessions       list saved sessions (newest first)\n" +
@@ -694,6 +695,13 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(fmt.Sprintf("warning: could not save settings: %v", err))
 		}
 		say("model: " + agent.Model())
+	case "/init":
+		path, err := core.InitInstructions(st.session.Cwd)
+		if err != nil {
+			say(err.Error())
+			break
+		}
+		say("created " + path + "; edit it, then restart agentiloop to load it")
 	case "/undo":
 		lines := tools.UndoLast()
 		if lines == nil {
