@@ -152,6 +152,12 @@ func Apply(patch, cwd string) (string, error) {
 	}
 
 	for _, c := range changes {
+		RecordUndo(c.path)
+		if c.from != "" {
+			RecordUndo(c.from)
+		}
+	}
+	for _, c := range changes {
 		if c.delete {
 			if err := os.Remove(c.path); err != nil {
 				return "", fmt.Errorf("deleting %s: %v", c.path, err)

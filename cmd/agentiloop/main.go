@@ -221,6 +221,7 @@ func run() error {
 	defer st.mcp.Shutdown()
 
 	if !interactive {
+		tools.BeginUndoTurn()
 		err := st.agent.Run(ctx, strings.Join(cli.prompt, " "), renderTracked(newDiffTracker(cwd)))
 		st.persist()
 		return err
@@ -449,6 +450,7 @@ func runCancellable(ctx context.Context, agent *core.Agent, line string, onEvent
 		case <-done:
 		}
 	}()
+	tools.BeginUndoTurn()
 	err := agent.Run(runCtx, line, onEvent)
 	return err != nil && runCtx.Err() != nil && ctx.Err() == nil, err
 }
@@ -510,6 +512,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		if p, ok := st.agent.Policy().(*interactivePolicy); ok {
 			p.cancel = stop
 		}
+		tools.BeginUndoTurn()
 		err = st.agent.Run(runCtx, line, renderLine)
 		cancelled := runCtx.Err() != nil && ctx.Err() == nil
 		stop()
@@ -626,6 +629,7 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 
 const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
+	"/undo           revert the file changes from the last prompt\n" +
 	"/compact        summarize the conversation to free context\n" +
 	"/sessions       list saved sessions (newest first)\n" +
 	"/resume <id|n>  load a saved session into this REPL\n" +
@@ -644,6 +648,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 	switch cmd {
 	case "/clear":
 		agent.Clear()
+		tools.ClearUndo()
 		st.session = core.NewSession(st.session.Cwd, st.provider.Name(), agent.Model())
 		say("context and tool history cleared; new session " + st.session.ID)
 	case "/model":
@@ -689,6 +694,16 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(fmt.Sprintf("warning: could not save settings: %v", err))
 		}
 		say("model: " + agent.Model())
+	case "/undo":
+		lines := tools.UndoLast()
+		if lines == nil {
+			say("nothing to undo")
+			break
+		}
+		for _, l := range lines {
+			say(l)
+		}
+		say("undid the file changes from the last prompt (shell commands are not undone)")
 	case "/compact":
 		ev, err := agent.Compact(ctx)
 		switch {

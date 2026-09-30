@@ -132,6 +132,7 @@ func (WriteFile) Call(_ context.Context, tc core.ToolContext, input json.RawMess
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", ioErr(err)
 	}
+	RecordUndo(path)
 	if err := os.WriteFile(path, []byte(a.Content), 0o644); err != nil {
 		return "", ioErr(err)
 	}
@@ -187,6 +188,7 @@ func (EditFile) Call(_ context.Context, tc core.ToolContext, input json.RawMessa
 	if a.ReplaceAll {
 		limit = -1
 	}
+	RecordUndo(path)
 	if err := os.WriteFile(path, []byte(strings.Replace(text, a.OldString, a.NewString, limit)), 0o644); err != nil {
 		return "", ioErr(err)
 	}
