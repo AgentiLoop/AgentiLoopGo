@@ -137,12 +137,15 @@ func segmentsMatch(pat, path [][]rune) bool {
 // A pattern without `/` matches the file name at any depth.
 type glob [][][]rune
 
-func newGlob(pattern string) glob {
+func newGlob(pattern string) glob { return buildGlob(pattern, true) }
+
+// buildGlob compiles pattern; bareAnyDepth makes a pattern without `/` match at any depth (otherwise it is anchored).
+func buildGlob(pattern string, bareAnyDepth bool) glob {
 	pattern = strings.ReplaceAll(pattern, "\\", "/")
 	pattern = strings.TrimPrefix(pattern, "./")
 	var g glob
 	for _, p := range expandBraces(pattern) {
-		if !strings.Contains(p, "/") {
+		if bareAnyDepth && !strings.Contains(p, "/") {
 			p = "**/" + p
 		}
 		var segs [][]rune
@@ -169,14 +172,80 @@ func (g glob) matches(rel string) bool {
 	return false
 }
 
+// ignoreRule is one .gitignore line. Supports comments, `!` negation, a trailing `/` (directories
+// only), anchoring (a leading or inner `/`), `*`, `?`, `**`; not character classes.
+type ignoreRule struct {
+	base    string // directory holding the .gitignore, relative to the walk root ("" for the root itself)
+	glob    glob
+	negate  bool
+	dirOnly bool
+}
+
+func parseIgnoreRule(base, line string) (ignoreRule, bool) {
+	line = strings.TrimRight(line, " \t\r")
+	if line == "" || strings.HasPrefix(line, "#") {
+		return ignoreRule{}, false
+	}
+	r := ignoreRule{base: base}
+	if strings.HasPrefix(line, "!") {
+		r.negate = true
+		line = line[1:]
+	}
+	if strings.HasPrefix(line, "\\#") || strings.HasPrefix(line, "\\!") {
+		line = line[1:]
+	}
+	r.dirOnly = strings.HasSuffix(line, "/")
+	line = strings.TrimRight(line, "/")
+	if line == "" {
+		return ignoreRule{}, false
+	}
+	r.glob = buildGlob(strings.TrimLeft(line, "/"), !strings.Contains(line, "/"))
+	return r, true
+}
+
+func (r ignoreRule) matches(rel string, isDir bool) bool {
+	if r.dirOnly && !isDir {
+		return false
+	}
+	below := rel
+	if r.base != "" {
+		if !strings.HasPrefix(rel, r.base+"/") {
+			return false
+		}
+		below = rel[len(r.base)+1:]
+	}
+	return r.glob.matches(below)
+}
+
+// isIgnored: the last matching rule wins, as in git.
+func isIgnored(rules []ignoreRule, rel string, isDir bool) bool {
+	ignored := false
+	for _, r := range rules {
+		if r.matches(rel, isDir) {
+			ignored = !r.negate
+		}
+	}
+	return ignored
+}
+
 // walk visits files under root depth-first in name order; visit returns false to stop.
-// Symlinked directories are not followed.
+// Honors .gitignore files found at or below root. Symlinked directories are not followed.
 func walk(root string, visit func(abs, rel string) bool) {
+	var rules []ignoreRule
 	var step func(dir, rel string) bool
 	step = func(dir, rel string) bool {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return true
+		}
+		mark := len(rules)
+		defer func() { rules = rules[:mark] }()
+		if data, err := os.ReadFile(filepath.Join(dir, ".gitignore")); err == nil {
+			for _, l := range strings.Split(string(data), "\n") {
+				if r, ok := parseIgnoreRule(rel, l); ok {
+					rules = append(rules, r)
+				}
+			}
 		}
 		for _, e := range entries { // ReadDir returns entries sorted by filename
 			name := e.Name()
@@ -186,11 +255,11 @@ func walk(root string, visit func(abs, rel string) bool) {
 			}
 			switch {
 			case e.IsDir():
-				if !skipDirs[name] && !step(filepath.Join(dir, name), childRel) {
+				if !skipDirs[name] && !isIgnored(rules, childRel, true) && !step(filepath.Join(dir, name), childRel) {
 					return false
 				}
 			case e.Type().IsRegular():
-				if !visit(filepath.Join(dir, name), childRel) {
+				if !isIgnored(rules, childRel, false) && !visit(filepath.Join(dir, name), childRel) {
 					return false
 				}
 			}
@@ -206,7 +275,7 @@ type GlobFiles struct{}
 
 func (GlobFiles) Name() string { return "glob" }
 func (GlobFiles) Description() string {
-	return "Find files by name pattern, searching recursively and skipping .git, node_modules, target and similar. " +
+	return "Find files by name pattern, searching recursively and skipping .git, node_modules, target, anything listed in .gitignore and similar. " +
 		"`*` and `?` match within one path segment, `**` matches any number of directories, `{a,b}` offers alternatives. " +
 		"A pattern without `/` (like `*.rs`) matches file names at any depth; one with `/` (like `src/**/*.go`) " +
 		"matches the path relative to `path`. Returns paths sorted by name."
@@ -261,7 +330,7 @@ type Grep struct{}
 func (Grep) Name() string { return "grep" }
 func (Grep) Description() string {
 	return "Search file contents with a regular expression (RE2-style syntax). Searches recursively, skipping .git, " +
-		"node_modules, target, binary and very large files. Returns `path:line:text` for each matching line. " +
+		"node_modules, target, anything listed in .gitignore, binary and very large files. Returns `path:line:text` for each matching line. " +
 		"Use `glob` to restrict which files are searched (same syntax as the glob tool)."
 }
 func (Grep) InputSchema() any {

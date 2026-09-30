@@ -305,3 +305,66 @@ func TestGrepTruncatesLongLines(t *testing.T) {
 		t.Fatal(err, out)
 	}
 }
+
+func TestGitignoreRules(t *testing.T) {
+	lines := []string{"# comment", "", "*.log", "!keep.log", "dist/", "/root.txt", "docs/gen", "**/cache"}
+	var rules []ignoreRule
+	for _, l := range lines {
+		if r, ok := parseIgnoreRule("", l); ok {
+			rules = append(rules, r)
+		}
+	}
+	for _, c := range []struct {
+		rel   string
+		isDir bool
+		want  bool
+	}{
+		{"a/b/x.log", false, true}, {"keep.log", false, false}, {"dist", true, true}, {"dist", false, false},
+		{"src/dist", true, true}, {"root.txt", false, true}, {"sub/root.txt", false, false},
+		{"docs/gen", false, true}, {"a/docs/gen", false, false}, {"x/y/cache", true, true},
+		{"src/main.rs", false, false},
+	} {
+		if got := isIgnored(rules, c.rel, c.isDir); got != c.want {
+			t.Errorf("isIgnored(%q, dir=%v) = %v, want %v", c.rel, c.isDir, got, c.want)
+		}
+	}
+}
+
+func TestGlobAndGrepHonorNestedGitignore(t *testing.T) {
+	d := t.TempDir()
+	for rel, body := range map[string]string{
+		".gitignore":        "dist/\n*.log\n!keep.log\n/top.txt\n",
+		"a.rs":              "needle\n",
+		"dist/out.rs":       "needle\n",
+		"debug.log":         "needle\n",
+		"keep.log":          "needle\n",
+		"top.txt":           "needle\n",
+		"sub/top.txt":       "needle\n",
+		"sub/.gitignore":    "local.rs\n",
+		"sub/local.rs":      "needle\n",
+		"sub/deep/local.rs": "needle\n",
+		"sub/other.rs":      "needle\n",
+		"other/local.rs":    "needle\n",
+	} {
+		p := filepath.Join(d, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := call(t, GlobFiles{}, d, `{"pattern":"*"}`)
+	if want := ".gitignore\na.rs\nkeep.log\nother/local.rs\nsub/.gitignore\nsub/other.rs\nsub/top.txt"; err != nil || out != want {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, err = call(t, Grep{}, d, `{"pattern":"needle"}`)
+	if want := "a.rs:1:needle\nkeep.log:1:needle\nother/local.rs:1:needle\nsub/other.rs:1:needle\nsub/top.txt:1:needle"; err != nil || out != want {
+		t.Fatalf("%v %q", err, out)
+	}
+	// Searching inside an ignored folder on purpose still works: only rules at or below it apply.
+	out, err = call(t, GlobFiles{}, d, `{"pattern":"*.rs","path":"dist"}`)
+	if err != nil || out != "dist/out.rs" {
+		t.Fatalf("%v %q", err, out)
+	}
+}
