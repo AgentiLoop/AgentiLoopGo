@@ -1,4 +1,4 @@
-// Package tools holds the built-in tools: read_file, write_file, edit_file, list_dir, bash,
+// Package tools holds the built-in tools: read_file, write_file, edit_file, list_dir, glob, grep, bash,
 // and apply_patch (registered for the Codex provider, whose models are trained on it).
 package tools
 
@@ -22,7 +22,7 @@ import (
 // DefaultRegistry is pre-populated with every built-in tool.
 func DefaultRegistry() *core.ToolRegistry {
 	r := core.NewToolRegistry()
-	r.Register(ReadFile{}).Register(WriteFile{}).Register(EditFile{}).Register(ListDir{}).Register(Bash{})
+	r.Register(ReadFile{}).Register(WriteFile{}).Register(EditFile{}).Register(ListDir{}).Register(GlobFiles{}).Register(Grep{}).Register(Bash{})
 	return r
 }
 

@@ -199,12 +199,14 @@ agentiloop "explain what this project does"
 
 ### 何ができますか？ (ツール)
 
-エージェントは 5 つの組み込みツールを使って作業します。自分でツールを呼び出す必要はありません。目的を伝えれば、エージェントがツールを選びます:
+エージェントは 7 つの組み込みツールを使って作業します。自分でツールを呼び出す必要はありません。目的を伝えれば、エージェントがツールを選びます:
 
 | ツール | 機能 | 事前に確認？ |
 |---|---|---|
 | `read_file` | ファイルを読み込みます (行番号付き) | いいえ |
 | `list_dir` | フォルダー内のファイルを一覧表示します | いいえ |
+| `glob` | 名前のパターンでファイルを検索します (`*.rs`, `src/**/*.go`) | いいえ |
+| `grep` | 正規表現でファイルの中身を検索します | いいえ |
 | `write_file` | 新しいファイルを作成するか、既存のファイルを上書きします | **はい** |
 | `edit_file` | ファイル内の特定のテキストを正確に書き換えます | **はい** |
 | `bash` | テスト、ビルド、`git` などのシェルコマンドを実行します (Mac/Linux では `sh -c`、Windows では `cmd /C`) | **はい** |
@@ -546,7 +548,7 @@ go run ./examples/mcp-example-server --http 8791   # または --sse 8792、ま�
 |---|---|
 | `core` | 中核部分: エージェントループ、メッセージ、ツールとプロバイダーのインターフェース、許可、セッション、要約 |
 | `provider` | モデルとの通信: Anthropic、OpenAI 互換サーバー、oMLX |
-| `tools` | 組み込みツール: `read_file`、`write_file`、`edit_file`、`list_dir`、`bash` |
+| `tools` | 組み込みツール: `read_file`、`write_file`、`edit_file`、`list_dir`、`glob`、`grep`、`bash` |
 | `mcp` | MCP クライアント。Agent! の Swift 製 AgentMCP から移植したものです |
 | `cmd/agentiloop` | `agentiloop` プログラム: オプション、チャット、TUI、設定 |
 
