@@ -353,3 +353,19 @@ func TestJSONResultHasStableKeysAndErrorOnlyOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAppendExtraOnlyWhenNotBlank(t *testing.T) {
+	if appendExtra("base", "") != "base" || appendExtra("base", "  \n") != "base" {
+		t.Fatal("blank extra changed the prompt")
+	}
+	if got := appendExtra("base", " Answer in French. "); got != "base\n\nAnswer in French." {
+		t.Fatal(got)
+	}
+	t.Setenv("AGENTILOOP_APPEND_SYSTEM_PROMPT", "from env")
+	if c, _, err := parseArgs(nil, &bytes.Buffer{}); err != nil || c.appendPrompt != "from env" {
+		t.Fatal(c, err)
+	}
+	if c, _, err := parseArgs([]string{"--append-system-prompt", "flag"}, &bytes.Buffer{}); err != nil || c.appendPrompt != "flag" {
+		t.Fatal(c, err)
+	}
+}

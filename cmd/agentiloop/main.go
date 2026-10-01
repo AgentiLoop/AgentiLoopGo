@@ -29,6 +29,7 @@ const version = "0.0.4"
 
 type cliArgs struct {
 	provider, model, cwd, resume              string
+	appendPrompt                              string
 	yes, continueLast, newSession, tui, noTUI bool
 	noMCP, setup, reset, jsonOut              bool
 	maxTurns                                  *int
@@ -88,6 +89,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.BoolVar(&c.noMCP, "no-mcp", false, "Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]")
 	fs.BoolVar(&c.setup, "setup", false, "Run the first-time setup wizard (provider, key, model). Runs by itself on a\nmachine with no credentials and no ~/.agentiloop.")
 	fs.BoolVar(&c.reset, "reset", false, "Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,\nmcp.json), the agentiloop block in your shell profile and Keychain items the\nwizard created. Asks first unless --yes.")
+	fs.StringVar(&c.appendPrompt, "append-system-prompt", "", "Extra `TEXT` added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]")
 	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
 	help := fs.BoolP("help", "h", false, "Print help")
 	ver := fs.BoolP("version", "V", false, "Print version")
@@ -120,6 +122,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		env("model", "AGENTILOOP_MODEL", func(v string) error { c.model = v; return nil }),
 		env("yes", "AGENTILOOP_YES", func(v string) error { c.yes = truthy(v); return nil }),
 		env("tui", "AGENTILOOP_TUI", func(v string) error { c.tui = truthy(v); return nil }),
+		env("append-system-prompt", "AGENTILOOP_APPEND_SYSTEM_PROMPT", func(v string) error { c.appendPrompt = v; return nil }),
 		env("no-mcp", "AGENTILOOP_NO_MCP", func(v string) error { c.noMCP = truthy(v); return nil }),
 		env("compact-at", "AGENTILOOP_COMPACT_AT", func(v string) error {
 			n, err := strconv.ParseUint(v, 10, 64)
@@ -370,6 +373,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		note("instructions: " + i.Path)
 	}
 	config.SystemPrompt = core.AppendInstructions(config.SystemPrompt, instructions)
+	config.SystemPrompt = appendExtra(config.SystemPrompt, cli.appendPrompt)
 
 	// Remember this launch (model per provider always; UI options only for interactive runs).
 	saved.SetModel(prov.Name(), config.Model)
@@ -1009,6 +1013,14 @@ func gitChanges(cwd string) (string, error) {
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// appendExtra is base plus the --append-system-prompt text, if any non-blank text was given.
+func appendExtra(base, extra string) string {
+	if extra = strings.TrimSpace(extra); extra == "" {
+		return base
+	}
+	return base + "\n\n" + extra
 }
 
 // jsonResult is the --json result object for a one-shot run (keys sorted, like the Rust twin).
