@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -288,5 +289,45 @@ func TestExpandStdinReplacesLoneDash(t *testing.T) {
 	}
 	if _, err := expandStdin([]string{"x", "-"}, func() (string, error) { return "", errors.New("closed") }); err == nil {
 		t.Fatal("read error swallowed")
+	}
+}
+
+func TestGitChangesReportsNonRepoCleanAndChangedTrees(t *testing.T) {
+	d := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", d, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(d, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := gitChanges(d); err == nil {
+		t.Skip("temp dir is inside a git repository")
+	}
+	git("init", "-q")
+	if got, err := gitChanges(d); err != nil || got != "no changes in the git working tree" {
+		t.Fatalf("clean: %q, %v", got, err)
+	}
+	write("a.txt", "one\n")
+	git("add", "a.txt")
+	git("commit", "-q", "-m", "first")
+
+	write("a.txt", "two\n")
+	write("new.txt", "x\n")
+	out, err := gitChanges(d)
+	if err != nil || !strings.Contains(out, " M a.txt") || !strings.Contains(out, "?? new.txt") ||
+		!strings.Contains(out, "-one") || !strings.Contains(out, "+two") {
+		t.Fatalf("changed: %q, %v", out, err)
+	}
+
+	write("a.txt", strings.Repeat("line\n", 300))
+	if out, _ := gitChanges(d); !strings.Contains(out, "more lines") {
+		t.Fatalf("long diff not cut: %q", out)
 	}
 }

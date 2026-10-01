@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -638,6 +640,7 @@ const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
+	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
 	"/compact        summarize the conversation to free context\n" +
@@ -740,6 +743,13 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			break
 		}
 		say("created " + path + "; edit it, then restart agentiloop to load it")
+	case "/diff":
+		text, err := gitChanges(st.session.Cwd)
+		if err != nil {
+			say(err.Error())
+			break
+		}
+		say(text)
 	case "/todos":
 		if t := tools.CurrentTodos(); t != "" {
 			say(t)
@@ -917,6 +927,53 @@ func speedLine(outputTokens, elapsedMs uint64, firstTokenMs *uint64) string {
 	}
 	parts = append(parts, fmt.Sprintf("%d tok in %.1fs", outputTokens, float64(elapsedMs)/1000))
 	return strings.Join(parts, " · ")
+}
+
+// diffMaxLines is how many lines of /diff output are shown before the rest is cut.
+const diffMaxLines = 200
+
+// gitChanges is `git status --short` plus the diff against HEAD (or the working-tree diff in a repo with no commits).
+func gitChanges(cwd string) (string, error) {
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", cwd}, args...)...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			if msg := strings.TrimSpace(stderr.String()); msg != "" {
+				return "", errors.New(msg)
+			}
+			return "", err
+		}
+		return string(out), nil
+	}
+	status, err := git("status", "--short")
+	if err != nil {
+		var nf *exec.Error
+		if errors.As(err, &nf) {
+			return "", fmt.Errorf("could not run git: %v", err)
+		}
+		return "", err
+	}
+	if strings.TrimSpace(status) == "" {
+		return "no changes in the git working tree", nil
+	}
+	diff, err := git("diff", "HEAD", "--no-color")
+	if err != nil {
+		diff, _ = git("diff", "--no-color")
+	}
+	lines := strings.Split(strings.TrimRight(status, "\n"), "\n")
+	if strings.TrimSpace(diff) != "" {
+		dl := strings.Split(strings.TrimRight(diff, "\n"), "\n")
+		lines = append(lines, "")
+		if len(dl) > diffMaxLines {
+			lines = append(lines, dl[:diffMaxLines]...)
+			lines = append(lines, fmt.Sprintf("… %d more lines (run git diff for all)", len(dl)-diffMaxLines))
+		} else {
+			lines = append(lines, dl...)
+		}
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // expandStdin joins the prompt words; each lone "-" word becomes the stdin text (read once, on first use).
