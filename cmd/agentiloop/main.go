@@ -395,6 +395,10 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 	tracker := newDiffTracker(cwd)
 	// Agent side: one prompt or slash command at a time, until the UI hangs up.
 	for line := range submit {
+		// A custom command (.agentiloop/commands/<name>.md) turns into its prompt.
+		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
+			line = p
+		}
 		if strings.HasPrefix(line, "/") {
 			// Collect the command's output into one transcript entry so
 			// multi-line output (the /model list) isn't double-spaced.
@@ -502,6 +506,9 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		}
 		if line == "/exit" || line == "/quit" {
 			break
+		}
+		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
+			line = p
 		}
 		if strings.HasPrefix(line, "/") {
 			before := st.session.ID
@@ -640,6 +647,7 @@ const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
+	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
@@ -750,6 +758,8 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			break
 		}
 		say(text)
+	case "/commands":
+		say(core.CommandListing(core.LoadCommands(st.session.Cwd, agentiloopHome())))
 	case "/todos":
 		if t := tools.CurrentTodos(); t != "" {
 			say(t)
