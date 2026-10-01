@@ -30,7 +30,7 @@ const version = "0.0.4"
 type cliArgs struct {
 	provider, model, cwd, resume              string
 	yes, continueLast, newSession, tui, noTUI bool
-	noMCP, setup, reset                       bool
+	noMCP, setup, reset, jsonOut              bool
 	maxTurns                                  *int
 	compactAt                                 *uint64
 	prompt                                    []string
@@ -88,6 +88,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.BoolVar(&c.noMCP, "no-mcp", false, "Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]")
 	fs.BoolVar(&c.setup, "setup", false, "Run the first-time setup wizard (provider, key, model). Runs by itself on a\nmachine with no credentials and no ~/.agentiloop.")
 	fs.BoolVar(&c.reset, "reset", false, "Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,\nmcp.json), the agentiloop block in your shell profile and Keychain items the\nwizard created. Asks first unless --yes.")
+	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
 	help := fs.BoolP("help", "h", false, "Print help")
 	ver := fs.BoolP("version", "V", false, "Print version")
 	fs.Usage = func() {}
@@ -154,6 +155,8 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		return nil, false, conflict("--setup", "[PROMPT]...")
 	case c.reset && len(c.prompt) > 0:
 		return nil, false, conflict("--reset", "[PROMPT]...")
+	case c.jsonOut && len(c.prompt) == 0:
+		return nil, false, errors.New("the following required arguments were not provided:\n  <PROMPT>...")
 	}
 	return &c, false, nil
 }
@@ -228,8 +231,30 @@ func run() error {
 			b, err := io.ReadAll(os.Stdin)
 			return string(b), err
 		})
+		var lastText string
 		if err == nil {
-			err = st.agent.Run(ctx, prompt, renderTracked(newDiffTracker(cwd)))
+			track := renderTracked(newDiffTracker(cwd))
+			onEvent := track
+			if cli.jsonOut {
+				onEvent = func(ev core.Event) {
+					switch e := ev.(type) {
+					case core.EvTurnComplete:
+						lastText = ""
+					case core.EvText:
+						lastText = e.Text
+						return
+					case core.EvTextDelta:
+						return
+					}
+					track(ev)
+				}
+			}
+			err = st.agent.Run(ctx, prompt, onEvent)
+		}
+		st.persist()
+		if cli.jsonOut {
+			u := st.agent.Usage()
+			fmt.Println(jsonResult(lastText, err, st.session.ID, st.provider.Name(), st.agent.Model(), u))
 		}
 		st.persist()
 		return err
@@ -984,6 +1009,26 @@ func gitChanges(cwd string) (string, error) {
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// jsonResult is the --json result object for a one-shot run (keys sorted, like the Rust twin).
+func jsonResult(result string, runErr error, sessionID, provider, model string, u core.Usage) string {
+	v := map[string]any{
+		"result":     result,
+		"is_error":   runErr != nil,
+		"session_id": sessionID,
+		"provider":   provider,
+		"model":      model,
+		"usage":      map[string]uint64{"requests": u.Requests, "input_tokens": u.InputTokens, "output_tokens": u.OutputTokens},
+	}
+	if runErr != nil {
+		v["error"] = runErr.Error()
+	}
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // expandStdin joins the prompt words; each lone "-" word becomes the stdin text (read once, on first use).

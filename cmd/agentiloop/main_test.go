@@ -331,3 +331,25 @@ func TestGitChangesReportsNonRepoCleanAndChangedTrees(t *testing.T) {
 		t.Fatalf("long diff not cut: %q", out)
 	}
 }
+
+func TestJSONResultHasStableKeysAndErrorOnlyOnFailure(t *testing.T) {
+	got := jsonResult("a", nil, "s", "p", "m", core.Usage{Requests: 1, InputTokens: 2, OutputTokens: 3})
+	want := `{"is_error":false,"model":"m","provider":"p","result":"a","session_id":"s","usage":{"input_tokens":2,"output_tokens":3,"requests":1}}`
+	if got != want {
+		t.Fatalf("got %s", got)
+	}
+	var ok map[string]any
+	if err := json.Unmarshal([]byte(jsonResult("hi \"x\"\n <b>", nil, "s1", "omlx", "m", core.Usage{})), &ok); err != nil || ok["result"] != "hi \"x\"\n <b>" {
+		t.Fatal(ok, err)
+	}
+	var bad map[string]any
+	if err := json.Unmarshal([]byte(jsonResult("", errors.New("boom"), "s1", "omlx", "m", core.Usage{})), &bad); err != nil || bad["is_error"] != true || bad["error"] != "boom" {
+		t.Fatal(bad, err)
+	}
+	if _, _, err := parseArgs([]string{"--json"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("--json without a prompt accepted")
+	}
+	if c, _, err := parseArgs([]string{"--json", "hi"}, &bytes.Buffer{}); err != nil || !c.jsonOut {
+		t.Fatal(err)
+	}
+}
