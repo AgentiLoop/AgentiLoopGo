@@ -254,6 +254,8 @@ Options:
       --reset                       Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,
                                     mcp.json), the agentiloop block in your shell profile and Keychain items the
                                     wizard created. Asks first unless --yes.
+      --allow-tool NAME             Run this tool without asking (repeatable or comma-separated; NAME* matches a prefix, e.g. mcp_*)
+      --deny-tool NAME              Never run this tool NAME; the model is told it was denied (same name rules). Beats --allow-tool and --yes
       --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
@@ -433,6 +435,8 @@ Cada opción también se puede configurar con una variable de entorno, que apare
 | `-r, --resume <id>` | | Vuelve a abrir una conversación concreta (encuentra los ids con `/sessions`) |
 | `-C, --cwd <folder>` | | Trabaja en una carpeta distinta de la que estás |
 | `--yes` | `AGENTILOOP_YES` | No pregunta antes de ejecutar herramientas. ⚠️ Solo para uso automatizado y de confianza |
+| `--allow-tool <name>` | | Ejecuta esta herramienta sin preguntar; repite la opción o usa comas. `mcp_*` coincide con un prefijo. Útil en CI sin `--yes` |
+| `--deny-tool <name>` | | Nunca ejecuta esta herramienta: se le dice al modelo que fue denegada. Tiene prioridad sobre `--allow-tool` y `--yes` |
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | No inicia servidores MCP (mira más abajo) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Texto extra al final del prompt del sistema para esta ejecución (no se guarda) |
 | `--json` | | Con un prompt de una sola vez: imprime la respuesta como un objeto JSON (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) en stdout. La actividad de herramientas queda en stderr |

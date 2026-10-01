@@ -369,3 +369,10 @@ func TestAppendExtraOnlyWhenNotBlank(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestToolRuleFlagsAreRepeatableAndCommaSeparated(t *testing.T) {
+	c, _, err := parseArgs([]string{"--allow-tool", "write_file,edit_file", "--allow-tool", "mcp_*", "--deny-tool", "bash", "hi"}, &bytes.Buffer{})
+	if err != nil || !reflect.DeepEqual(c.allowTools, []string{"write_file", "edit_file", "mcp_*"}) || !reflect.DeepEqual(c.denyTools, []string{"bash"}) {
+		t.Fatalf("%+v %v", c, err)
+	}
+}

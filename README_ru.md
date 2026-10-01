@@ -254,6 +254,8 @@ Options:
       --reset                       Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,
                                     mcp.json), the agentiloop block in your shell profile and Keychain items the
                                     wizard created. Asks first unless --yes.
+      --allow-tool NAME             Run this tool without asking (repeatable or comma-separated; NAME* matches a prefix, e.g. mcp_*)
+      --deny-tool NAME              Never run this tool NAME; the model is told it was denied (same name rules). Beats --allow-tool and --yes
       --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
@@ -432,6 +434,8 @@ agentiloop --new          # начать новый разговор (стары
 | `-r, --resume <id>` | | Снова открыть конкретный разговор (id можно найти с помощью `/sessions`) |
 | `-C, --cwd <folder>` | | Работать в другой папке, а не в той, где вы находитесь |
 | `--yes` | `AGENTILOOP_YES` | Не спрашивать перед запуском инструментов. ⚠️ Только для доверенного автоматического использования |
+| `--allow-tool <name>` | | Запускает этот инструмент без вопросов; повторяйте параметр или используйте запятые. `mcp_*` совпадает по префиксу. Удобно для CI без `--yes` |
+| `--deny-tool <name>` | | Никогда не запускает этот инструмент: модели сообщается об отказе. Приоритетнее `--allow-tool` и `--yes` |
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Не запускать MCP-серверы (см. ниже) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Дополнительный текст в конце системного промпта для этого запуска (не сохраняется) |
 | `--json` | | С разовым запросом: выводит ответ одним JSON-объектом (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) в stdout. Работа инструментов остаётся в stderr |

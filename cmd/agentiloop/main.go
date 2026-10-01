@@ -30,6 +30,7 @@ const version = "0.0.4"
 type cliArgs struct {
 	provider, model, cwd, resume              string
 	appendPrompt                              string
+	allowTools, denyTools                     []string
 	yes, continueLast, newSession, tui, noTUI bool
 	noMCP, setup, reset, jsonOut              bool
 	maxTurns                                  *int
@@ -89,6 +90,8 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.BoolVar(&c.noMCP, "no-mcp", false, "Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]")
 	fs.BoolVar(&c.setup, "setup", false, "Run the first-time setup wizard (provider, key, model). Runs by itself on a\nmachine with no credentials and no ~/.agentiloop.")
 	fs.BoolVar(&c.reset, "reset", false, "Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,\nmcp.json), the agentiloop block in your shell profile and Keychain items the\nwizard created. Asks first unless --yes.")
+	fs.StringSliceVar(&c.allowTools, "allow-tool", nil, "Run this tool without asking (repeatable or comma-separated; `NAME`* matches a prefix, e.g. mcp_*)")
+	fs.StringSliceVar(&c.denyTools, "deny-tool", nil, "Never run this tool `NAME`; the model is told it was denied (same name rules). Beats --allow-tool and --yes")
 	fs.StringVar(&c.appendPrompt, "append-system-prompt", "", "Extra `TEXT` added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]")
 	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
 	help := fs.BoolP("help", "h", false, "Print help")
@@ -320,6 +323,9 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	} else {
 		policy = newPolicy(cli.yes)
 	}
+	if allow, deny := core.NewToolPatterns(cli.allowTools), core.NewToolPatterns(cli.denyTools); len(allow) > 0 || len(deny) > 0 {
+		policy = &core.Rules{Allow: allow, Deny: deny, Inner: policy}
+	}
 	sdir := sessionsDir()
 
 	// Resume, if asked — or automatically for a plain interactive launch, as long as the
@@ -522,7 +528,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 	}
 	st.ask = func(prompt string) (string, error) { return ln.Prompt(prompt) }
 	// Permission prompts go through the same line editor that owns stdin.
-	if p, ok := st.agent.Policy().(*interactivePolicy); ok {
+	if p, ok := innerPolicy(st.agent.Policy()).(*interactivePolicy); ok {
 		p.ask = st.ask
 	}
 	for {
@@ -569,7 +575,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		// a signal while the agent works, or Ctrl-C at a permission prompt.
 		sigCtx, stopSig := signal.NotifyContext(ctx, os.Interrupt)
 		runCtx, stop := context.WithCancel(sigCtx)
-		if p, ok := st.agent.Policy().(*interactivePolicy); ok {
+		if p, ok := innerPolicy(st.agent.Policy()).(*interactivePolicy); ok {
 			p.cancel = stop
 		}
 		tools.BeginUndoTurn()
@@ -1029,6 +1035,14 @@ func gitChanges(cwd string) (string, error) {
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// innerPolicy unwraps the --allow-tool/--deny-tool rules to reach the policy that prompts.
+func innerPolicy(p core.PermissionPolicy) core.PermissionPolicy {
+	if r, ok := p.(*core.Rules); ok {
+		return r.Inner
+	}
+	return p
 }
 
 // appendExtra is base plus the --append-system-prompt text, if any non-blank text was given.
