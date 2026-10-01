@@ -275,26 +275,35 @@ Arguments:
                what is piped on stdin: git diff | agentiloop "review this" -
 
 Options:
-  -p, --provider PROVIDER   Model backend (PROVIDER): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,
-                            LM Studio, Groq, OpenRouter, … via OPENAI_BASE_URL), or omlx (local
-                            oMLX server, http://localhost:8000/v1). Defaults to the last one used,
-                            then auto-detected from which credentials are set. [env: AGENTILOOP_PROVIDER]
-  -m, --model MODEL         MODEL id to use. Defaults to the last model used with this provider
-                            (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
-      --yes                 Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
-      --max-turns N         Max provider round-trips (N) per prompt [default: last used, then 50]
-      --compact-at TOKENS   Summarize the conversation once a request reaches this many input TOKENS (0 = never)
-                            [default: last used, then 150000] [env: AGENTILOOP_COMPACT_AT]
-  -C, --cwd DIR             Working directory (DIR) the agent operates in (defaults to cwd)
-  -r, --resume ID           Resume a saved session by ID (see /sessions)
-  -c, --continue            Resume the most recent session for this working directory
-                            (the default for interactive launches; kept for scripts)
-      --new                 Start a new session instead of continuing the last one in this directory
-      --tui                 Full-screen terminal UI instead of the line REPL. Remembered. [env: AGENTILOOP_TUI]
-      --no-tui              Use the line REPL even if the TUI was used last time
-      --no-mcp              Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]
-  -h, --help                Print help
-  -V, --version             Print version
+  -p, --provider PROVIDER           Model backend (PROVIDER): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,
+                                    LM Studio, Groq, OpenRouter, … via OPENAI_BASE_URL), omlx (local
+                                    oMLX server, http://localhost:8000/v1), or codex (ChatGPT plan via
+                                    `codex login`). Defaults to the last one used, then auto-detected from
+                                    which credentials are set. [env: AGENTILOOP_PROVIDER]
+  -m, --model MODEL                 MODEL id to use. Defaults to the last model used with this provider
+                                    (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
+      --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
+      --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
+      --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
+                                    [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
+  -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
+  -r, --resume ID                   Resume a saved session by ID (see /sessions)
+  -c, --continue                    Resume the most recent session for this working directory
+                                    (the default for interactive launches; kept for scripts)
+      --new                         Start a new session instead of continuing the last one in this directory
+      --tui                         Full-screen terminal UI instead of the line REPL. Remembered. [env: AGENTILOOP_TUI]
+      --no-tui                      Use the line REPL even if the TUI was used last time
+      --no-mcp                      Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]
+      --setup                       Run the first-time setup wizard (provider, key, model). Runs by itself on a
+                                    machine with no credentials and no ~/.agentiloop.
+      --reset                       Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,
+                                    mcp.json), the agentiloop block in your shell profile and Keychain items the
+                                    wizard created. Asks first unless --yes.
+      --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
+      --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
+                                    provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
+  -h, --help                        Print help
+  -V, --version                     Print version
 ```
 
 Inside a session, type `/help` to see the chat commands (`/model`, `/sessions`, `/resume`, `/clear`, `/compact`, `/mcp`, `/exit`). The full reference is in [All options](#all-options) and [Commands inside the chat](#commands-inside-the-chat).
