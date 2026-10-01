@@ -94,7 +94,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	}
 	if *help {
 		fmt.Fprintf(stdout, "AgentiLoop — a cross-platform agentic coding loop for your terminal.\n\n"+
-			"Usage: agentiloop [OPTIONS] [PROMPT]...\n\nArguments:\n  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL\n\nOptions:\n%s", fs.FlagUsages())
+			"Usage: agentiloop [OPTIONS] [PROMPT]...\n\nArguments:\n  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL. A lone `-` in it is replaced by\n               what is piped on stdin: git diff | agentiloop \"review this\" -\n\nOptions:\n%s", fs.FlagUsages())
 		return nil, true, nil
 	}
 	if *ver {
@@ -222,7 +222,13 @@ func run() error {
 
 	if !interactive {
 		tools.BeginUndoTurn()
-		err := st.agent.Run(ctx, strings.Join(cli.prompt, " "), renderTracked(newDiffTracker(cwd)))
+		prompt, err := expandStdin(cli.prompt, func() (string, error) {
+			b, err := io.ReadAll(os.Stdin)
+			return string(b), err
+		})
+		if err == nil {
+			err = st.agent.Run(ctx, prompt, renderTracked(newDiffTracker(cwd)))
+		}
 		st.persist()
 		return err
 	}
@@ -911,6 +917,35 @@ func speedLine(outputTokens, elapsedMs uint64, firstTokenMs *uint64) string {
 	}
 	parts = append(parts, fmt.Sprintf("%d tok in %.1fs", outputTokens, float64(elapsedMs)/1000))
 	return strings.Join(parts, " · ")
+}
+
+// expandStdin joins the prompt words; each lone "-" word becomes the stdin text (read once, on first use).
+func expandStdin(words []string, read func() (string, error)) (string, error) {
+	has := false
+	for _, w := range words {
+		if w == "-" {
+			has = true
+		}
+	}
+	if !has {
+		return strings.Join(words, " "), nil
+	}
+	piped, err := read()
+	if err != nil {
+		return "", fmt.Errorf("could not read stdin: %w", err)
+	}
+	piped = strings.TrimRight(piped, " \t\r\n")
+	if strings.TrimSpace(piped) == "" {
+		return "", errors.New("`-` asks for the prompt text on stdin, but stdin was empty")
+	}
+	parts := make([]string, len(words))
+	for i, w := range words {
+		if w == "-" {
+			w = piped
+		}
+		parts[i] = w
+	}
+	return strings.Join(parts, "\n\n"), nil
 }
 
 // compactJSON renders tool input on one line, trimmed to 120 bytes.

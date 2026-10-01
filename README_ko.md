@@ -226,7 +226,8 @@ AgentiLoop — a cross-platform agentic coding loop for your terminal.
 Usage: agentiloop [OPTIONS] [PROMPT]...
 
 Arguments:
-  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL
+  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL. A lone `-` in it is replaced by
+               what is piped on stdin: git diff | agentiloop "review this" -
 
 Options:
   -p, --provider PROVIDER   Model backend (PROVIDER): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,

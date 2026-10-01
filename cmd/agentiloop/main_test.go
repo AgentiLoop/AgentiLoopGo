@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -263,5 +264,29 @@ func TestHistoryFileFormats(t *testing.T) {
 func TestUsageLineTotalsTokens(t *testing.T) {
 	if got := usageLine(3, 1200, 340); got != "3 request(s) since start: 1200 input + 340 output = 1540 tokens" {
 		t.Fatal(got)
+	}
+}
+
+func TestExpandStdinReplacesLoneDash(t *testing.T) {
+	never := func() (string, error) { t.Fatal("stdin must not be read"); return "", nil }
+	for _, c := range []struct {
+		words []string
+		want  string
+	}{{[]string{"fix", "the", "bug"}, "fix the bug"}, {[]string{"a-b", "--x"}, "a-b --x"}} {
+		if got, err := expandStdin(c.words, never); err != nil || got != c.want {
+			t.Fatalf("%v: got %q, %v", c.words, got, err)
+		}
+	}
+	if got, err := expandStdin([]string{"review", "-"}, func() (string, error) { return "diff text\n\n", nil }); err != nil || got != "review\n\ndiff text" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if got, err := expandStdin([]string{"-"}, func() (string, error) { return "only stdin", nil }); err != nil || got != "only stdin" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := expandStdin([]string{"-"}, func() (string, error) { return "  \n", nil }); err == nil {
+		t.Fatal("empty stdin accepted")
+	}
+	if _, err := expandStdin([]string{"x", "-"}, func() (string, error) { return "", errors.New("closed") }); err == nil {
+		t.Fatal("read error swallowed")
 	}
 }

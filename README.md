@@ -271,7 +271,8 @@ AgentiLoop — a cross-platform agentic coding loop for your terminal.
 Usage: agentiloop [OPTIONS] [PROMPT]...
 
 Arguments:
-  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL
+  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL. A lone `-` in it is replaced by
+               what is piped on stdin: git diff | agentiloop "review this" -
 
 Options:
   -p, --provider PROVIDER   Model backend (PROVIDER): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,
@@ -415,6 +416,7 @@ Press **Esc** any time the agent is working to stop it. What it already did and 
 | **TUI** (full screen) | `agentiloop --tui` | Everyday use: scrolling history, live status, clickable links |
 | **Chat** (line by line) | `agentiloop` | Simple terminals, or if you prefer plain text |
 | **One-shot** | `agentiloop "explain this project"` | One question: it answers, then exits. Handy in scripts |
+| **Piped** | `git diff \| agentiloop "review this" -` | Pipe text in with a `-` in the prompt: it is replaced by what was piped. Handy for diffs and logs |
 
 Keys in the TUI: **Enter** sends · **↑ / ↓** go through earlier prompts · **PgUp / PgDn** or the mouse wheel scrolls · **Esc** stops the running request (the session is kept) · **Ctrl-U** clears the line · **Ctrl-C** quits.
 
