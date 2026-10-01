@@ -27,7 +27,7 @@ const (
 var initTimeout = 90 * time.Second
 
 // Version is reported as clientInfo.version; set by the CLI.
-var Version = "0.0.4"
+var Version = "0.0.5"
 
 type ToolInfo struct {
 	Name        string
