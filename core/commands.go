@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -40,16 +41,29 @@ func (c CustomCommand) Description() string {
 	return line
 }
 
-// Expand is the prompt to send for "/name args".
+// Expand is the prompt to send for "/name args". $ARGUMENTS is the whole text after the command and
+// $1..$9 are its words; without any placeholder the text is appended after a blank line.
 func (c CustomCommand) Expand(args string) string {
-	switch {
-	case strings.Contains(c.Template, "$ARGUMENTS"):
-		return strings.TrimSpace(strings.ReplaceAll(c.Template, "$ARGUMENTS", args))
-	case args == "":
-		return strings.TrimSpace(c.Template)
-	default:
+	words := strings.Fields(args)
+	positional := false
+	for n := 1; n <= 9; n++ {
+		positional = positional || strings.Contains(c.Template, "$"+strconv.Itoa(n))
+	}
+	if !strings.Contains(c.Template, "$ARGUMENTS") && !positional {
+		if args == "" {
+			return strings.TrimSpace(c.Template)
+		}
 		return strings.TrimRight(c.Template, " \t\r\n") + "\n\n" + args
 	}
+	out := strings.ReplaceAll(c.Template, "$ARGUMENTS", args)
+	for n := 1; n <= 9; n++ {
+		w := ""
+		if n <= len(words) {
+			w = words[n-1]
+		}
+		out = strings.ReplaceAll(out, "$"+strconv.Itoa(n), w)
+	}
+	return strings.TrimSpace(out)
 }
 
 func validCommandName(n string) bool {

@@ -44,6 +44,16 @@ func TestCommandsExpandReplacesOrAppendsArgumentsAndResolveOnlyMatchesCustom(t *
 			t.Fatalf("%q: got %q, %v", line, got, ok)
 		}
 	}
+	write(t, filepath.Join(cd, "cmp.md"), "Compare $1 with $2, focus: $3.\nAll: $ARGUMENTS")
+	write(t, filepath.Join(cd, "only1.md"), "Explain $1")
+	for line, want := range map[string]string{
+		"/cmp a.rs b.rs":       "Compare a.rs with b.rs, focus: .\nAll: a.rs b.rs",
+		"/only1 main.rs extra": "Explain main.rs",
+	} {
+		if got, ok := ResolveCommand(line, d, ""); !ok || got != want {
+			t.Fatalf("%q: got %q, %v", line, got, ok)
+		}
+	}
 	for _, line := range []string{"/nothing", "not a command"} {
 		if _, ok := ResolveCommand(line, d, ""); ok {
 			t.Fatal("resolved", line)
