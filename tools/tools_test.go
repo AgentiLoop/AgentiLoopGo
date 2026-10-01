@@ -158,15 +158,15 @@ func TestBashTimesOut(t *testing.T) {
 
 func TestDefaultRegistryHasAllBuiltins(t *testing.T) {
 	r := DefaultRegistry()
-	if r.Len() != 8 {
+	if r.Len() != 9 {
 		t.Fatal(r.Len())
 	}
-	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "web_fetch", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "web_fetch", "todo_write", "bash"} {
 		if _, ok := r.Get(name); !ok {
 			t.Fatal("missing", name)
 		}
 	}
-	for name, want := range map[string]bool{"read_file": false, "list_dir": false, "glob": false, "grep": false, "web_fetch": true, "write_file": true, "edit_file": true, "bash": true} {
+	for name, want := range map[string]bool{"read_file": false, "list_dir": false, "glob": false, "grep": false, "web_fetch": true, "todo_write": false, "write_file": true, "edit_file": true, "bash": true} {
 		if tool, _ := r.Get(name); tool.IsMutating() != want {
 			t.Fatalf("%s mutating = %v", name, !want)
 		}

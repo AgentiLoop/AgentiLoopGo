@@ -244,7 +244,7 @@ agentiloop "explain what this project does"
 
 ### What can it do? (tools)
 
-The agent works with eight built-in tools. You don't call them yourself. You describe the goal, and the agent picks the tool:
+The agent works with nine built-in tools. You don't call them yourself. You describe the goal, and the agent picks the tool:
 
 | Tool | What it does | Asks first? |
 |---|---|---|
@@ -253,6 +253,7 @@ The agent works with eight built-in tools. You don't call them yourself. You des
 | `glob` | Finds files by name pattern (`*.rs`, `src/**/*.go`) | No |
 | `grep` | Searches inside files with a regular expression | No |
 | `web_fetch` | Fetches a web page or API response as plain text | **Yes** |
+| `todo_write` | Keeps the model's own checklist for multi-step work | No |
 | `write_file` | Creates a new file or overwrites one | **Yes** |
 | `edit_file` | Changes an exact piece of text in a file | **Yes** |
 | `bash` | Runs a shell command, like tests, builds or `git` (`sh -c` on Mac/Linux, `cmd /C` on Windows) | **Yes** |
@@ -503,6 +504,7 @@ Type these at the prompt, in the TUI or the chat:
 | `/resume <n or id>` | Reopen one of them |
 | `/clear` | Clear the conversation and start a new one |
 | `/undo` | Revert the file changes the agent made for your last prompt (files changed by `bash` commands are not undone) |
+| `/todos` | Show the model's current task checklist |
 | `/init` | Create a starter `AGENTS.md` for the current project (never overwrites) |
 | `/export [file]` | Save the conversation as a Markdown file (`/export notes.md`, or a default name in the project folder) |
 | `/compact` | Summarize the conversation now to free up space |
@@ -607,7 +609,7 @@ The project is split into five packages, and each one builds on the ones before 
 |---|---|
 | `core` | The heart: the agent loop, messages, the tool and provider interfaces, permissions, sessions, summarizing |
 | `provider` | Talks to the models: Anthropic, OpenAI-compatible servers, oMLX |
-| `tools` | Built-in tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `web_fetch`, `bash` |
+| `tools` | Built-in tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `web_fetch`, `todo_write`, `bash` |
 | `mcp` | The MCP client, ported from Agent!'s Swift AgentMCP |
 | `cmd/agentiloop` | The `agentiloop` program: options, chat, TUI, settings |
 

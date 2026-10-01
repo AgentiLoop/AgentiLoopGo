@@ -632,6 +632,7 @@ const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
+	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
 	"/compact        summarize the conversation to free context\n" +
 	"/sessions       list saved sessions (newest first)\n" +
@@ -652,6 +653,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 	case "/clear":
 		agent.Clear()
 		tools.ClearUndo()
+		tools.ClearTodos()
 		st.session = core.NewSession(st.session.Cwd, st.provider.Name(), agent.Model())
 		say("context and tool history cleared; new session " + st.session.ID)
 	case "/model":
@@ -732,6 +734,12 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			break
 		}
 		say("created " + path + "; edit it, then restart agentiloop to load it")
+	case "/todos":
+		if t := tools.CurrentTodos(); t != "" {
+			say(t)
+		} else {
+			say("no todo list yet (the model creates one for multi-step work)")
+		}
 	case "/undo":
 		lines := tools.UndoLast()
 		if lines == nil {
