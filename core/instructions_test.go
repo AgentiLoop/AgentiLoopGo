@@ -94,3 +94,34 @@ func TestInitWritesTemplateWithDetectedCommandsAndNeverOverwrites(t *testing.T) 
 		t.Fatal("empty project template")
 	}
 }
+
+func TestAtImportsInlineFilesAndLeaveUnresolvableLinesAlone(t *testing.T) {
+	d := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		p := filepath.Join(d, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("docs/style.md", "use tabs\n@more.md\n")
+	write("docs/more.md", "and snake_case\n")
+	write("loop.md", "@AGENTS.md\n")
+	write("AGENTS.md", "# Rules\n@docs/style.md\n@missing.md\n@loop.md\nemail me @ home\n```\n@docs/style.md\n```\n")
+	got := LoadInstructions(d, "")
+	if len(got) != 1 {
+		t.Fatal(got)
+	}
+	text := got[0].Text
+	for _, want := range []string{"use tabs\n[imported from", "and snake_case", "\n@missing.md\n", "email me @ home", "```\n@docs/style.md\n```", "\n@AGENTS.md"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Count(text, "use tabs") != 1 {
+		t.Fatalf("fenced or cyclic import was expanded:\n%s", text)
+	}
+}

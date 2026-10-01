@@ -21,6 +21,52 @@ type Instructions struct {
 	Text string
 }
 
+// maxImportDepth is the deepest chain of @file imports followed.
+const maxImportDepth = 3
+
+// expandImports replaces each line that is just "@path" with that file's text, so AGENTS.md can pull in
+// other docs. Paths are relative to the importing file (or absolute, or ~/…). Lines inside code fences,
+// missing files, import cycles and chains deeper than maxImportDepth are left as they are.
+func expandImports(text, dir string, depth int, stack []string) string {
+	lines := strings.Split(text, "\n")
+	fenced := false
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fenced = !fenced
+		}
+		rel, ok := strings.CutPrefix(t, "@")
+		if !ok || fenced || rel == "" || strings.ContainsAny(rel, " \t\r") || depth >= maxImportDepth {
+			continue
+		}
+		path := filepath.Join(dir, rel)
+		if r, ok := strings.CutPrefix(rel, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				continue
+			}
+			path = filepath.Join(home, r)
+		} else if filepath.IsAbs(rel) {
+			path = rel
+		}
+		canon, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		cycle := false
+		for _, s := range stack {
+			cycle = cycle || s == canon
+		}
+		data, err := os.ReadFile(canon)
+		if cycle || err != nil {
+			continue
+		}
+		body := expandImports(strings.ToValidUTF8(string(data), "\uFFFD"), filepath.Dir(canon), depth+1, append(stack, canon))
+		lines[i] = "[imported from " + path + "]\n" + strings.TrimRight(body, " \t\r\n")
+	}
+	return strings.Join(lines, "\n")
+}
+
 func readInstructionsIn(dir string) *Instructions {
 	for _, name := range InstructionFileNames {
 		path := filepath.Join(dir, name)
@@ -32,6 +78,11 @@ func readInstructionsIn(dir string) *Instructions {
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
+		self, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			self = path
+		}
+		text = expandImports(text, dir, 0, []string{self})
 		if len(text) > MaxInstructionBytes {
 			cut := MaxInstructionBytes
 			for cut > 0 && !utf8.RuneStart(text[cut]) {
