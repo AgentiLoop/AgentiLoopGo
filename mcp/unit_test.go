@@ -136,3 +136,31 @@ func TestServerEnvBlocksInjectionAndWidensPath(t *testing.T) {
 		t.Fatalf("%v", env)
 	}
 }
+
+func TestParsePromptArgsMapsByNamePositionAndRemainder(t *testing.T) {
+	p := PromptInfo{Name: "p", Arguments: []PromptArg{{"name", true}, {"tone", false}}}
+	for text, want := range map[string]map[string]string{
+		"Ada":             {"name": "Ada"},
+		"Ada very formal": {"name": "Ada", "tone": "very formal"},
+		"tone=casual Ada": {"name": "Ada", "tone": "casual"},
+		"name=Ada":        {"name": "Ada"},
+	} {
+		got, err := ParsePromptArgs(p, text)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%q: got %v, %v", text, got, err)
+		}
+	}
+	if _, err := ParsePromptArgs(p, ""); err == nil || !strings.Contains(err.Error(), "missing required argument `name`") {
+		t.Fatal(err)
+	}
+	one := PromptInfo{Arguments: []PromptArg{{"text", true}}}
+	if got, _ := ParsePromptArgs(one, "a=b and more"); got["text"] != "a=b and more" {
+		t.Fatal(got)
+	}
+	if got, err := ParsePromptArgs(PromptInfo{}, "ignored"); err != nil || len(got) != 0 {
+		t.Fatal(got, err)
+	}
+	if PromptCommandName("docs", "sum") != "mcp__docs__sum" {
+		t.Fatal("name")
+	}
+}

@@ -41,6 +41,16 @@ type ResourceInfo struct {
 	URI, Name, Description, MimeType string
 }
 
+type PromptArg struct {
+	Name     string
+	Required bool
+}
+
+type PromptInfo struct {
+	Name, Description string
+	Arguments         []PromptArg
+}
+
 type Server struct {
 	Name string
 	// ServerInfo is serverInfo.name / version reported by the server.
@@ -48,6 +58,7 @@ type Server struct {
 	TransportKind string
 	Tools         []ToolInfo
 	Resources     []ResourceInfo
+	Prompts       []PromptInfo
 	conn          Transport
 }
 
@@ -133,6 +144,59 @@ func (s *Server) CallTool(ctx context.Context, name string, arguments any) (stri
 	return FormatContent(result), isErr, nil
 }
 
+// GetPrompt runs prompts/get and returns the messages flattened to text, ready to send as a user prompt.
+func (s *Server) GetPrompt(ctx context.Context, name string, args map[string]string) (string, error) {
+	if !s.IsAlive() {
+		return "", fmt.Errorf("MCP server `%s` is no longer running", s.Name)
+	}
+	if args == nil {
+		args = map[string]string{}
+	}
+	resp, err := s.conn.Request(ctx, "prompts/get", Msg{"name": name, "arguments": args})
+	if err != nil {
+		return "", err
+	}
+	if e, ok := resp["error"].(map[string]any); ok {
+		m, _ := e["message"].(string)
+		return "", errors.New(m)
+	}
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		return "", errors.New("invalid prompts/get response")
+	}
+	return FormatPrompt(result), nil
+}
+
+// FormatPrompt is the text of a prompts/get result: every message's text content, separated by blank lines.
+func FormatPrompt(result map[string]any) string {
+	var parts []string
+	msgs, _ := result["messages"].([]any)
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		text := ""
+		switch c := mm["content"].(type) {
+		case string:
+			text = c
+		case []any:
+			var t []string
+			for _, b := range c {
+				if bm, ok := b.(map[string]any); ok {
+					if s, ok := bm["text"].(string); ok {
+						t = append(t, s)
+					}
+				}
+			}
+			text = strings.Join(t, "\n")
+		case map[string]any:
+			text, _ = c["text"].(string)
+		}
+		if strings.TrimSpace(text) != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 // ReadResource runs resources/read and returns the text of the first content item.
 func (s *Server) ReadResource(ctx context.Context, uri string) (string, error) {
 	resp, err := s.conn.Request(ctx, "resources/read", Msg{"uri": uri})
@@ -206,7 +270,37 @@ func (s *Server) handshake(ctx context.Context) error {
 			}
 		}
 	}
+	if has("prompts") {
+		if items, err := listAll(ctx, s.conn, "prompts/list", "prompts"); err == nil {
+			s.Prompts = parsePrompts(items)
+		}
+	}
 	return nil
+}
+
+func parsePrompts(items []any) []PromptInfo {
+	var out []PromptInfo
+	for _, it := range items {
+		p, _ := it.(map[string]any)
+		name, _ := p["name"].(string)
+		if name == "" || strings.IndexFunc(name, func(c rune) bool {
+			return !(c < 128 && (c == '_' || c == '-' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'))
+		}) >= 0 {
+			continue
+		}
+		desc, _ := p["description"].(string)
+		info := PromptInfo{Name: name, Description: desc}
+		args, _ := p["arguments"].([]any)
+		for _, a := range args {
+			am, _ := a.(map[string]any)
+			if an, ok := am["name"].(string); ok {
+				req, _ := am["required"].(bool)
+				info.Arguments = append(info.Arguments, PromptArg{an, req})
+			}
+		}
+		out = append(out, info)
+	}
+	return out
 }
 
 // listAll runs a paged list call; key is the result array field.

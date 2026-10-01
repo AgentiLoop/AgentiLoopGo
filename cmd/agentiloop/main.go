@@ -424,6 +424,15 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 	tracker := newDiffTracker(cwd)
 	// Agent side: one prompt or slash command at a time, until the UI hangs up.
 	for line := range submit {
+		// An MCP prompt (/mcp__<server>__<name> args) turns into the text the server returns.
+		if text, ok, err := st.mcp.PromptCommand(ctx, line); ok {
+			if err != nil {
+				q.Send(uiError{err.Error()})
+				q.Send(uiIdle{})
+				continue
+			}
+			line = text
+		}
 		// A custom command (.agentiloop/commands/<name>.md) turns into its prompt.
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p
@@ -535,6 +544,13 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		}
 		if line == "/exit" || line == "/quit" {
 			break
+		}
+		if text, ok, err := st.mcp.PromptCommand(ctx, line); ok {
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			line = text
 		}
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p

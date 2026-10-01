@@ -197,6 +197,94 @@ func (m *Manager) RegisterTools(reg *core.ToolRegistry) {
 	}
 }
 
+// PromptCommandName is the slash-command name for a server prompt: mcp__<server>__<prompt>.
+func PromptCommandName(server, prompt string) string { return "mcp__" + server + "__" + prompt }
+
+// ParsePromptArgs maps the words typed after a prompt command onto its declared arguments. name=value sets
+// that argument; other words fill the remaining arguments in order, and the last one takes the rest of the
+// text. The error names a missing required argument.
+func ParsePromptArgs(info PromptInfo, text string) (map[string]string, error) {
+	out := map[string]string{}
+	declared := func(n string) bool {
+		for _, a := range info.Arguments {
+			if a.Name == n {
+				return true
+			}
+		}
+		return false
+	}
+	var positional []string
+	for _, w := range strings.Fields(text) {
+		if k, v, ok := strings.Cut(w, "="); ok && declared(k) {
+			out[k] = v
+		} else {
+			positional = append(positional, w)
+		}
+	}
+	var free []PromptArg
+	for _, a := range info.Arguments {
+		if _, set := out[a.Name]; !set {
+			free = append(free, a)
+		}
+	}
+	for i, a := range free {
+		if i >= len(positional) {
+			break
+		}
+		if i == len(free)-1 {
+			out[a.Name] = strings.Join(positional[i:], " ")
+		} else {
+			out[a.Name] = positional[i]
+		}
+	}
+	for _, a := range info.Arguments {
+		if _, set := out[a.Name]; a.Required && !set {
+			usage := make([]string, len(info.Arguments))
+			for i, x := range info.Arguments {
+				usage[i] = "[" + x.Name + "]"
+				if x.Required {
+					usage[i] = "<" + x.Name + ">"
+				}
+			}
+			return nil, fmt.Errorf("missing required argument `%s`. Usage: %s", a.Name, strings.Join(usage, " "))
+		}
+	}
+	return out, nil
+}
+
+// PromptCommand handles a typed line like "/mcp__docs__summarize some text": the prompt text fetched from that
+// server. ok is false when the line is not an MCP prompt command; err is set when it is but cannot be run.
+func (m *Manager) PromptCommand(ctx context.Context, line string) (text string, ok bool, err error) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(line), "/")
+	if !found {
+		return "", false, nil
+	}
+	cmd, args := rest, ""
+	if i := strings.IndexAny(rest, " \t\r\n"); i >= 0 {
+		cmd, args = rest[:i], strings.TrimSpace(rest[i:])
+	}
+	for _, s := range m.Servers {
+		for _, p := range s.Prompts {
+			if PromptCommandName(s.Name, p.Name) != cmd {
+				continue
+			}
+			a, err := ParsePromptArgs(p, args)
+			if err != nil {
+				return "", true, err
+			}
+			t, err := s.GetPrompt(ctx, p.Name, a)
+			if err != nil {
+				return "", true, fmt.Errorf("MCP prompt failed: %v", err)
+			}
+			if strings.TrimSpace(t) == "" {
+				return "", true, fmt.Errorf("the MCP prompt returned no text")
+			}
+			return t, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 // StatusLines is the human-readable status for /mcp.
 func (m *Manager) StatusLines() []string {
 	var out []string
@@ -210,6 +298,18 @@ func (m *Manager) StatusLines() []string {
 		for _, t := range s.Tools {
 			first, _, _ := strings.Cut(t.Description, "\n")
 			out = append(out, fmt.Sprintf("    %s  %s", ToolName(s.Name, t.Name), truncRunes(first, 80)))
+		}
+		for _, p := range s.Prompts {
+			first, _, _ := strings.Cut(p.Description, "\n")
+			args := ""
+			for _, a := range p.Arguments {
+				if a.Required {
+					args += " <" + a.Name + ">"
+				} else {
+					args += " [" + a.Name + "]"
+				}
+			}
+			out = append(out, fmt.Sprintf("    /%s%s  %s", PromptCommandName(s.Name, p.Name), args, truncRunes(first, 60)))
 		}
 	}
 	for _, e := range m.Errors {

@@ -110,6 +110,17 @@ func exercise(t *testing.T, s *mcp.Server, transport string) {
 		t.Fatal(s.Resources)
 	}
 
+	// The invalid prompt name was dropped; prompts/get flattens the messages.
+	if len(s.Prompts) != 1 || s.Prompts[0].Name != "greet" || len(s.Prompts[0].Arguments) != 2 {
+		t.Fatal(s.Prompts)
+	}
+	if text, err := s.GetPrompt(ctx(t), "greet", map[string]string{"who": "Ada", "tone": "warm"}); err != nil || text != "Greet Ada (warm).\n\nKeep it short." {
+		t.Fatal(text, err)
+	}
+	if _, err := s.GetPrompt(ctx(t), "nope", nil); err == nil {
+		t.Fatal("unknown prompt should fail")
+	}
+
 	if out, isErr := call(t, s, "echo", map[string]any{"message": "hi ✓"}); out != "hi ✓" || isErr {
 		t.Fatal(out)
 	}
@@ -338,6 +349,23 @@ func TestManagerRegistersToolsFromAllTransports(t *testing.T) {
 	for _, want := range []string{"● Local [stdio] example-stdio 1.0.0 — connected (4 tools, 1 resources)", "[http]", "[sse]", "✗ Broken"} {
 		if !strings.Contains(status, want) {
 			t.Fatalf("missing %q in\n%s", want, status)
+		}
+	}
+	if !strings.Contains(status, "/mcp__Local__greet <who> [tone]") {
+		t.Fatal(status)
+	}
+	if text, ok, err := mgr.PromptCommand(ctx(t), "/mcp__Local__greet Ada warm and kind"); !ok || err != nil || text != "Greet Ada (warm and kind).\n\nKeep it short." {
+		t.Fatal(text, ok, err)
+	}
+	if text, ok, err := mgr.PromptCommand(ctx(t), "/mcp__Local__greet who=Bob"); !ok || err != nil || text != "Greet Bob ().\n\nKeep it short." {
+		t.Fatal(text, ok, err)
+	}
+	if _, ok, err := mgr.PromptCommand(ctx(t), "/mcp__Local__greet"); !ok || err == nil || !strings.Contains(err.Error(), "missing required argument `who`") {
+		t.Fatal(ok, err)
+	}
+	for _, line := range []string{"/clear", "hello"} {
+		if _, ok, _ := mgr.PromptCommand(ctx(t), line); ok {
+			t.Fatal("not a prompt command:", line)
 		}
 	}
 	mgr.Shutdown()

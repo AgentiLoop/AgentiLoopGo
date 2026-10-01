@@ -71,7 +71,7 @@ func handle(m msg, transport string) msg {
 	case "initialize":
 		result = msg{
 			"protocolVersion": "2024-11-05",
-			"capabilities":    msg{"tools": msg{}, "resources": msg{}},
+			"capabilities":    msg{"tools": msg{}, "resources": msg{}, "prompts": msg{}},
 			"serverInfo":      msg{"name": "example-" + transport, "version": "1.0.0"},
 		}
 	case "tools/list":
@@ -100,6 +100,22 @@ func handle(m msg, transport string) msg {
 			result = msg{"contents": []any{msg{"uri": uri, "mimeType": "text/plain", "text": "Hello from " + transport + "!"}}}
 		} else {
 			e = &rpcErr{-32002, "resource not found: " + uri}
+		}
+	case "prompts/list":
+		result = msg{"prompts": []any{
+			msg{"name": "greet", "description": "Ask for a greeting",
+				"arguments": []any{msg{"name": "who", "required": true}, msg{"name": "tone", "required": false}}},
+			msg{"name": "bad name!", "description": "invalid name, must be dropped by the client"},
+		}}
+	case "prompts/get":
+		if name, _ := params["name"].(string); name == "greet" {
+			arg := func(k string) string { a, _ := params["arguments"].(map[string]any); v, _ := a[k].(string); return v }
+			result = msg{"description": "greeting", "messages": []any{
+				msg{"role": "user", "content": msg{"type": "text", "text": "Greet " + arg("who") + " (" + arg("tone") + ")."}},
+				msg{"role": "user", "content": msg{"type": "text", "text": "Keep it short."}},
+			}}
+		} else {
+			e = &rpcErr{-32602, "unknown prompt: " + name}
 		}
 	case "ping":
 		result = msg{}
