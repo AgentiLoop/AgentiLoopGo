@@ -415,6 +415,8 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		slog.Warn("could not save settings", "err", err)
 	}
 
+	// task sub-agents share everything but the conversation; registered last so the child's copy of the tools lacks it.
+	registry.Register(core.NewTaskTool(prov, registry, policy, config))
 	agent := core.NewAgent(prov, registry, policy, config, core.ToolContext{Cwd: cwd})
 	var session *core.Session
 	if resumed != nil {

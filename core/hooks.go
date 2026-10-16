@@ -138,6 +138,17 @@ func LoadHooks(paths []string) (Hooks, []string) {
 	return hooks, errs
 }
 
+// WithoutStop is the same hooks minus the Stop ones (a sub-agent finishing is not the end of the request).
+func (hs Hooks) WithoutStop() Hooks {
+	var out Hooks
+	for _, h := range hs {
+		if h.Event != StopHook {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // Listing is the text for /hooks.
 func (hs Hooks) Listing() string {
 	if len(hs) == 0 {

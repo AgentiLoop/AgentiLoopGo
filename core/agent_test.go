@@ -536,3 +536,56 @@ func TestAgentHooksBlockCallsAddFeedbackAndRunOnStop(t *testing.T) {
 		t.Fatal(string(b), err)
 	}
 }
+
+func TestTaskToolRunsAChildAgentAndReturnsOnlyItsAnswer(t *testing.T) {
+	// Parent asks for a task; the child (same scripted provider) calls echo, then answers;
+	// the parent then finishes.
+	p := &scripted{responses: []ProviderResponse{
+		toolCall("t1", "task", `{"prompt":"look around","description":"explore"}`),
+		toolCall("c1", "echo", `{"msg":"child"}`),
+		text("child answer"),
+		text("parent done"),
+	}}
+	tools := NewToolRegistry()
+	tools.Register(echo{})
+	cfg := cfgTurns(5)
+	tools.Register(NewTaskTool(p, tools, AllowAll{}, cfg))
+	a := NewAgent(p, tools, AllowAll{}, cfg, ToolContext{Cwd: t.TempDir()})
+	err, evs := collect(a, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result *EvToolResult
+	for _, e := range evs {
+		if r, ok := e.(EvToolResult); ok && r.Name == "task" {
+			result = &r
+		}
+		if c, ok := e.(EvToolCall); ok && c.Name == "echo" {
+			t.Fatal("the child's echo call leaked into the parent's events")
+		}
+	}
+	if result == nil || result.IsError || !strings.HasPrefix(result.Output, "child answer\n\n[sub-agent: 2 turn(s), 1 tool call(s)") {
+		t.Fatalf("%+v", result)
+	}
+	if len(a.History) != 4 {
+		t.Fatal(len(a.History))
+	}
+	reqs := p.reqs()
+	if len(reqs) != 4 || len(reqs[1].Messages) != 1 {
+		t.Fatalf("%d requests; child messages %d", len(reqs), len(reqs[1].Messages))
+	}
+	has := func(r ProviderRequest, name string) bool {
+		for _, s := range r.Tools {
+			if s.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(reqs[0], "task") || has(reqs[1], "task") || !has(reqs[1], "echo") {
+		t.Fatal("child must see echo but not task")
+	}
+	if !strings.HasPrefix(FormatTaskOutcome(TaskOutcome{Answer: "  "}), "(the sub-agent gave no final answer)") {
+		t.Fatal(FormatTaskOutcome(TaskOutcome{}))
+	}
+}
