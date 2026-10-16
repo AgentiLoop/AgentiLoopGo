@@ -80,8 +80,39 @@ func (a *Anthropic) auth(r *http.Request, beta string) {
 }
 
 type wireUsage struct {
-	InputTokens  uint64 `json:"input_tokens"`
-	OutputTokens uint64 `json:"output_tokens"`
+	InputTokens   uint64 `json:"input_tokens"`
+	OutputTokens  uint64 `json:"output_tokens"`
+	CacheRead     uint64 `json:"cache_read_input_tokens"`
+	CacheCreation uint64 `json:"cache_creation_input_tokens"`
+}
+
+// Prompt caching: a breakpoint after the system prompt (which also covers the tools, sent
+// before it) and one on the last message, so the whole conversation prefix is reused by the
+// next request. The API finds the longest cached prefix by itself.
+var cacheControl = map[string]string{"type": "ephemeral"}
+
+// wireMessages are the messages as JSON, with a cache breakpoint on the last block of the last message.
+func wireMessages(messages []core.Message) []any {
+	out := make([]any, 0, len(messages))
+	for _, m := range messages {
+		b, err := json.Marshal(m)
+		if err != nil {
+			continue
+		}
+		var v map[string]any
+		if json.Unmarshal(b, &v) != nil {
+			continue
+		}
+		out = append(out, v)
+	}
+	if len(out) > 0 {
+		if content, ok := out[len(out)-1].(map[string]any)["content"].([]any); ok && len(content) > 0 {
+			if block, ok := content[len(content)-1].(map[string]any); ok {
+				block["cache_control"] = cacheControl
+			}
+		}
+	}
+	return out
 }
 
 type wireErrorBody struct {
@@ -91,19 +122,20 @@ type wireErrorBody struct {
 
 func (a *Anthropic) sendMessages(ctx context.Context, req core.ProviderRequest, stream bool) (*http.Response, error) {
 	type sys struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type         string            `json:"type"`
+		Text         string            `json:"text"`
+		CacheControl map[string]string `json:"cache_control,omitempty"`
 	}
 	system := []sys{}
 	if a.IsOAuth() {
-		system = append(system, sys{"text", claudeCodeIdentity})
+		system = append(system, sys{"text", claudeCodeIdentity, nil})
 	}
-	system = append(system, sys{"text", req.System})
+	system = append(system, sys{"text", req.System, cacheControl})
 	body := map[string]any{
 		"model":      req.Model,
 		"max_tokens": req.MaxTokens,
 		"system":     system,
-		"messages":   nonNilMessages(req.Messages),
+		"messages":   wireMessages(req.Messages),
 	}
 	if len(req.Tools) > 0 {
 		body["tools"] = req.Tools
@@ -201,10 +233,12 @@ func (a *Anthropic) Complete(ctx context.Context, req core.ProviderRequest) (cor
 		return core.ProviderResponse{}, fmt.Errorf("decoding Anthropic response: %w", err)
 	}
 	return core.ProviderResponse{
-		Message:      core.Message{Role: core.RoleAssistant, Content: wire.Content},
-		StopReason:   parseStopReason(wire.StopReason),
-		InputTokens:  wire.Usage.InputTokens,
-		OutputTokens: wire.Usage.OutputTokens,
+		Message:          core.Message{Role: core.RoleAssistant, Content: wire.Content},
+		StopReason:       parseStopReason(wire.StopReason),
+		InputTokens:      wire.Usage.InputTokens,
+		OutputTokens:     wire.Usage.OutputTokens,
+		CacheReadTokens:  wire.Usage.CacheRead,
+		CacheWriteTokens: wire.Usage.CacheCreation,
 	}, nil
 }
 
@@ -225,7 +259,7 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 
 	var blocks []*partial
 	var stopReason *string
-	var inTok, outTok uint64
+	var inTok, outTok, cacheRead, cacheWrite uint64
 	r := bufio.NewReader(resp.Body)
 	for {
 		line, rerr := r.ReadString('\n')
@@ -257,6 +291,7 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 			switch ev.Type {
 			case "message_start":
 				inTok = ev.Message.Usage.InputTokens
+				cacheRead, cacheWrite = ev.Message.Usage.CacheRead, ev.Message.Usage.CacheCreation
 			case "content_block_start":
 				p := &partial{kind: "skip"}
 				switch ev.ContentBlock.Type {
@@ -318,10 +353,12 @@ func (a *Anthropic) CompleteStream(ctx context.Context, req core.ProviderRequest
 		}
 	}
 	return core.ProviderResponse{
-		Message:      core.Message{Role: core.RoleAssistant, Content: content},
-		StopReason:   parsedStop,
-		InputTokens:  inTok,
-		OutputTokens: outTok,
+		Message:          core.Message{Role: core.RoleAssistant, Content: content},
+		StopReason:       parsedStop,
+		InputTokens:      inTok,
+		OutputTokens:     outTok,
+		CacheReadTokens:  cacheRead,
+		CacheWriteTokens: cacheWrite,
 	}, nil
 }
 
@@ -339,11 +376,4 @@ func parseStopReason(raw *string) core.StopReason {
 // statusText renders like reqwest's StatusCode Display: "401 Unauthorized".
 func statusText(resp *http.Response) string {
 	return fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-}
-
-func nonNilMessages(m []core.Message) []core.Message {
-	if m == nil {
-		return []core.Message{}
-	}
-	return m
 }

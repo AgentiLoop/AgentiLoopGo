@@ -119,6 +119,10 @@ type Usage struct {
 	Requests     uint64
 	InputTokens  uint64
 	OutputTokens uint64
+	// CacheReadTokens: prompt tokens the provider served from its cache (Anthropic prompt caching).
+	CacheReadTokens uint64
+	// CacheWriteTokens: prompt tokens the provider wrote to its cache.
+	CacheWriteTokens uint64
 }
 
 type Agent struct {
@@ -148,10 +152,12 @@ func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
 // Usage returns the tokens spent since this agent was created; Clear does not reset it.
 func (a *Agent) Usage() Usage { return a.usage }
 
-func (a *Agent) addUsage(input, output uint64) {
+func (a *Agent) addUsage(resp ProviderResponse) {
 	a.usage.Requests++
-	a.usage.InputTokens += input
-	a.usage.OutputTokens += output
+	a.usage.InputTokens += resp.InputTokens
+	a.usage.OutputTokens += resp.OutputTokens
+	a.usage.CacheReadTokens += resp.CacheReadTokens
+	a.usage.CacheWriteTokens += resp.CacheWriteTokens
 }
 
 func (a *Agent) Provider() Provider       { return a.provider }
@@ -275,7 +281,7 @@ func (a *Agent) Compact(ctx context.Context) (*EvCompacted, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.addUsage(resp.InputTokens, resp.OutputTokens)
+	a.addUsage(resp)
 	summary := resp.Message.Text()
 	if strings.TrimSpace(summary) == "" {
 		return nil, errors.New("compaction produced an empty summary")
@@ -366,7 +372,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 		}
 		a.pendingText.Reset()
 		a.lastInputTokens = resp.InputTokens
-		a.addUsage(resp.InputTokens, resp.OutputTokens)
+		a.addUsage(resp)
 		onEvent(EvTurnComplete{resp.InputTokens, resp.OutputTokens, uint64(time.Since(started).Milliseconds()), firstToken})
 
 		if text := resp.Message.Text(); text != "" {

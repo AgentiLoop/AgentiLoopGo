@@ -263,7 +263,11 @@ func TestHistoryFileFormats(t *testing.T) {
 }
 
 func TestUsageLineTotalsTokens(t *testing.T) {
-	if got := usageLine(3, 1200, 340); got != "3 request(s) since start: 1200 input + 340 output = 1540 tokens" {
+	u := core.Usage{Requests: 3, InputTokens: 1200, OutputTokens: 340}
+	if got := usageLine(core.Usage{Requests: 3, InputTokens: 1200, OutputTokens: 340, CacheReadTokens: 900, CacheWriteTokens: 50}); got != "3 request(s) since start: 1200 input + 340 output = 1540 tokens (prompt cache: 900 read, 50 written)" {
+		t.Fatal(got)
+	}
+	if got := usageLine(u); got != "3 request(s) since start: 1200 input + 340 output = 1540 tokens" {
 		t.Fatal(got)
 	}
 }
@@ -334,7 +338,7 @@ func TestGitChangesReportsNonRepoCleanAndChangedTrees(t *testing.T) {
 
 func TestJSONResultHasStableKeysAndErrorOnlyOnFailure(t *testing.T) {
 	got := jsonResult("a", nil, "s", "p", "m", core.Usage{Requests: 1, InputTokens: 2, OutputTokens: 3})
-	want := `{"is_error":false,"model":"m","provider":"p","result":"a","session_id":"s","usage":{"input_tokens":2,"output_tokens":3,"requests":1}}`
+	want := `{"is_error":false,"model":"m","provider":"p","result":"a","session_id":"s","usage":{"cache_read_tokens":0,"cache_write_tokens":0,"input_tokens":2,"output_tokens":3,"requests":1}}`
 	if got != want {
 		t.Fatalf("got %s", got)
 	}

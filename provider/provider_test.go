@@ -51,7 +51,7 @@ func jsonEq(t *testing.T, got json.RawMessage, want string) {
 // ---- anthropic ----------------------------------------------------------------
 
 const anthropicSSE = `event: message_start
-data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"m","usage":{"input_tokens":25,"output_tokens":1}}}
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"m","usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":2000,"cache_creation_input_tokens":300}}}
 
 event: content_block_start
 data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
@@ -97,7 +97,8 @@ func TestAnthropicStreamsTextDeltasAndAssemblesToolUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(deltas, []string{"Hel", "lo"}) || resp.Message.Text() != "Hello" ||
-		resp.StopReason != core.StopToolUse || resp.InputTokens != 25 || resp.OutputTokens != 15 {
+		resp.StopReason != core.StopToolUse || resp.InputTokens != 25 || resp.OutputTokens != 15 ||
+		resp.CacheReadTokens != 2000 || resp.CacheWriteTokens != 300 {
 		t.Fatalf("%v %+v", deltas, resp)
 	}
 	calls := resp.Message.ToolUses()
@@ -110,6 +111,37 @@ func TestAnthropicStreamsTextDeltasAndAssemblesToolUse(t *testing.T) {
 	json.Unmarshal(body, &sent)
 	if sent["stream"] != true || len(sent["system"].([]any)) != 1 {
 		t.Fatalf("request %s", body)
+	}
+	// Prompt caching: breakpoints on the system prompt and the last message block.
+	if sent["system"].([]any)[0].(map[string]any)["cache_control"].(map[string]any)["type"] != "ephemeral" {
+		t.Fatalf("system cache_control missing: %s", body)
+	}
+	msgs := sent["messages"].([]any)
+	last := msgs[len(msgs)-1].(map[string]any)["content"].([]any)
+	if last[len(last)-1].(map[string]any)["cache_control"].(map[string]any)["type"] != "ephemeral" {
+		t.Fatalf("message cache_control missing: %s", body)
+	}
+}
+
+func TestAnthropicCacheBreakpointOnlyOnTheLastBlockOfTheLastMessage(t *testing.T) {
+	msgs := []core.Message{
+		core.UserText("hi"),
+		{Role: core.RoleAssistant, Content: []core.ContentBlock{core.ToolUseBlock("t1", "x", nil)}},
+		core.ToolResults([]core.ContentBlock{core.ToolResultBlock("t1", "a", false), core.ToolResultBlock("t2", "b", false)}),
+	}
+	wire := wireMessages(msgs)
+	if len(wire) != 3 || len(wireMessages(nil)) != 0 {
+		t.Fatal(wire)
+	}
+	content := func(i int) []any { return wire[i].(map[string]any)["content"].([]any) }
+	for i, j := range []int{0, 0, 0} {
+		if _, has := content(i)[j].(map[string]any)["cache_control"]; has {
+			t.Fatalf("message %d block %d must not carry cache_control", i, j)
+		}
+	}
+	last := content(2)[1].(map[string]any)
+	if last["cache_control"].(map[string]string)["type"] != "ephemeral" || last["tool_use_id"] != "t2" {
+		t.Fatalf("%v", last)
 	}
 }
 

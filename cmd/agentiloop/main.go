@@ -802,7 +802,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say("model: " + agent.Model())
 	case "/usage":
 		u := agent.Usage()
-		say(usageLine(u.Requests, u.InputTokens, u.OutputTokens))
+		say(usageLine(u))
 		if last := agent.LastInputTokens(); last > 0 {
 			if l := agent.Limits(); l != nil && l.ContextWindow != nil && *l.ContextWindow > 0 {
 				say(fmt.Sprintf("context: %d of %d tokens (%d%%)", last, *l.ContextWindow, last*100 / *l.ContextWindow))
@@ -950,8 +950,12 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 }
 
 // usageLine is the first line of /usage: tokens spent since agentiloop started.
-func usageLine(requests, input, output uint64) string {
-	return fmt.Sprintf("%d request(s) since start: %d input + %d output = %d tokens", requests, input, output, input+output)
+func usageLine(u core.Usage) string {
+	line := fmt.Sprintf("%d request(s) since start: %d input + %d output = %d tokens", u.Requests, u.InputTokens, u.OutputTokens, u.InputTokens+u.OutputTokens)
+	if u.CacheReadTokens > 0 || u.CacheWriteTokens > 0 {
+		line += fmt.Sprintf(" (prompt cache: %d read, %d written)", u.CacheReadTokens, u.CacheWriteTokens)
+	}
+	return line
 }
 
 func compactedLine(beforeTokens uint64, messagesDropped int) string {
@@ -1100,7 +1104,10 @@ func jsonResultValue(result string, runErr error, sessionID, provider, model str
 		"session_id": sessionID,
 		"provider":   provider,
 		"model":      model,
-		"usage":      map[string]uint64{"requests": u.Requests, "input_tokens": u.InputTokens, "output_tokens": u.OutputTokens},
+		"usage": map[string]uint64{
+			"requests": u.Requests, "input_tokens": u.InputTokens, "output_tokens": u.OutputTokens,
+			"cache_read_tokens": u.CacheReadTokens, "cache_write_tokens": u.CacheWriteTokens,
+		},
 	}
 	if runErr != nil {
 		v["error"] = runErr.Error()

@@ -28,6 +28,10 @@ type ProviderResponse struct {
 	StopReason   StopReason
 	InputTokens  uint64
 	OutputTokens uint64
+	// CacheReadTokens: prompt tokens served from the provider's prompt cache; 0 when unsupported.
+	CacheReadTokens uint64
+	// CacheWriteTokens: prompt tokens written to the provider's prompt cache this request; 0 when unsupported.
+	CacheWriteTokens uint64
 }
 
 // ModelInfo is one entry from a provider's model catalog.
