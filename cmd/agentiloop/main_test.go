@@ -346,6 +346,12 @@ func TestJSONResultHasStableKeysAndErrorOnlyOnFailure(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonResult("", errors.New("boom"), "s1", "omlx", "m", core.Usage{})), &bad); err != nil || bad["is_error"] != true || bad["error"] != "boom" {
 		t.Fatal(bad, err)
 	}
+	if _, _, err := parseArgs([]string{"--stream-json"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("--stream-json without a prompt accepted")
+	}
+	if _, _, err := parseArgs([]string{"--json", "--stream-json", "x"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("--json with --stream-json accepted")
+	}
 	if _, _, err := parseArgs([]string{"--json"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("--json without a prompt accepted")
 	}
@@ -374,5 +380,29 @@ func TestToolRuleFlagsAreRepeatableAndCommaSeparated(t *testing.T) {
 	c, _, err := parseArgs([]string{"--allow-tool", "write_file,edit_file", "--allow-tool", "mcp_*", "--deny-tool", "bash", "hi"}, &bytes.Buffer{})
 	if err != nil || !reflect.DeepEqual(c.allowTools, []string{"write_file", "edit_file", "mcp_*"}) || !reflect.DeepEqual(c.denyTools, []string{"bash"}) {
 		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func TestStreamJSONLinesHaveATypeAndTheEventFields(t *testing.T) {
+	ms := uint64(900)
+	cases := map[string]core.Event{
+		`{"text":"hi","type":"text_delta"}`:                                                          core.EvTextDelta{Text: "hi"},
+		`{"text":"hi there","type":"text"}`:                                                          core.EvText{Text: "hi there"},
+		`{"id":"t1","input":{"command":"ls"},"name":"bash","type":"tool_call"}`:                      core.EvToolCall{ID: "t1", Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)},
+		`{"id":"t1","is_error":false,"name":"bash","output":"a\nb","type":"tool_result"}`:            core.EvToolResult{ID: "t1", Name: "bash", Output: "a\nb"},
+		`{"elapsed_ms":900,"first_token_ms":null,"input_tokens":10,"output_tokens":5,"type":"turn"}`: core.EvTurnComplete{InputTokens: 10, OutputTokens: 5, ElapsedMs: 900},
+		`{"elapsed_ms":900,"first_token_ms":900,"input_tokens":10,"output_tokens":5,"type":"turn"}`:  core.EvTurnComplete{InputTokens: 10, OutputTokens: 5, ElapsedMs: 900, FirstTokenMs: &ms},
+		`{"before_tokens":100,"messages_dropped":4,"type":"compacted"}`:                              core.EvCompacted{BeforeTokens: 100, MessagesDropped: 4},
+		`{"stop_reason":"end_turn","type":"done"}`:                                                   core.EvDone{StopReason: core.StopEndTurn},
+	}
+	for want, ev := range cases {
+		if got := eventJSON(ev); got != want {
+			t.Fatalf("got %s want %s", got, want)
+		}
+	}
+	v := jsonResultValue("a", nil, "s", "p", "m", core.Usage{})
+	v["type"] = "result"
+	if got := core.MarshalString(v, ""); !strings.Contains(got, `"type":"result"`) || !strings.Contains(got, `"result":"a"`) {
+		t.Fatal(got)
 	}
 }

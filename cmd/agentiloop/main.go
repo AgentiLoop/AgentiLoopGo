@@ -32,7 +32,7 @@ type cliArgs struct {
 	appendPrompt                              string
 	allowTools, denyTools                     []string
 	yes, continueLast, newSession, tui, noTUI bool
-	noMCP, setup, reset, jsonOut              bool
+	noMCP, setup, reset, jsonOut, streamJSON  bool
 	maxTurns                                  *int
 	compactAt                                 *uint64
 	prompt                                    []string
@@ -94,6 +94,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.StringSliceVar(&c.denyTools, "deny-tool", nil, "Never run this tool `NAME`; the model is told it was denied (same name rules). Beats --allow-tool and --yes")
 	fs.StringVar(&c.appendPrompt, "append-system-prompt", "", "Extra `TEXT` added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]")
 	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
+	fs.BoolVar(&c.streamJSON, "stream-json", false, "One-shot only: print every event as one JSON object per line on stdout as it happens\n(text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result\nobject as --json with \"type\": \"result\". Nothing else is printed.")
 	help := fs.BoolP("help", "h", false, "Print help")
 	ver := fs.BoolP("version", "V", false, "Print version")
 	fs.Usage = func() {}
@@ -161,8 +162,10 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		return nil, false, conflict("--setup", "[PROMPT]...")
 	case c.reset && len(c.prompt) > 0:
 		return nil, false, conflict("--reset", "[PROMPT]...")
-	case c.jsonOut && len(c.prompt) == 0:
+	case (c.jsonOut || c.streamJSON) && len(c.prompt) == 0:
 		return nil, false, errors.New("the following required arguments were not provided:\n  <PROMPT>...")
+	case c.jsonOut && c.streamJSON:
+		return nil, false, conflict("--json", "--stream-json")
 	}
 	return &c, false, nil
 }
@@ -241,15 +244,20 @@ func run() error {
 		if err == nil {
 			track := renderTracked(newDiffTracker(cwd))
 			onEvent := track
-			if cli.jsonOut {
+			if cli.jsonOut || cli.streamJSON {
 				onEvent = func(ev core.Event) {
 					switch e := ev.(type) {
 					case core.EvTurnComplete:
 						lastText = ""
 					case core.EvText:
 						lastText = e.Text
+					}
+					if cli.streamJSON {
+						fmt.Println(eventJSON(ev))
 						return
-					case core.EvTextDelta:
+					}
+					switch ev.(type) {
+					case core.EvText, core.EvTextDelta:
 						return
 					}
 					track(ev)
@@ -262,9 +270,13 @@ func run() error {
 			err = st.agent.Run(ctx, prompt, onEvent)
 		}
 		st.persist()
-		if cli.jsonOut {
+		if cli.jsonOut || cli.streamJSON {
 			u := st.agent.Usage()
-			fmt.Println(jsonResult(lastText, err, st.session.ID, st.provider.Name(), st.agent.Model(), u))
+			v := jsonResultValue(lastText, err, st.session.ID, st.provider.Name(), st.agent.Model(), u)
+			if cli.streamJSON {
+				v["type"] = "result"
+			}
+			fmt.Println(core.MarshalString(v, ""))
 		}
 		st.persist()
 		return err
@@ -1078,6 +1090,10 @@ func appendExtra(base, extra string) string {
 
 // jsonResult is the --json result object for a one-shot run (keys sorted, like the Rust twin).
 func jsonResult(result string, runErr error, sessionID, provider, model string, u core.Usage) string {
+	return core.MarshalString(jsonResultValue(result, runErr, sessionID, provider, model, u), "")
+}
+
+func jsonResultValue(result string, runErr error, sessionID, provider, model string, u core.Usage) map[string]any {
 	v := map[string]any{
 		"result":     result,
 		"is_error":   runErr != nil,
@@ -1089,11 +1105,35 @@ func jsonResult(result string, runErr error, sessionID, provider, model string, 
 	if runErr != nil {
 		v["error"] = runErr.Error()
 	}
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v)
-	return strings.TrimRight(b.String(), "\n")
+	return v
+}
+
+// eventJSON is one --stream-json line per agent event.
+func eventJSON(ev core.Event) string {
+	var v map[string]any
+	switch e := ev.(type) {
+	case core.EvTextDelta:
+		v = map[string]any{"type": "text_delta", "text": e.Text}
+	case core.EvText:
+		v = map[string]any{"type": "text", "text": e.Text}
+	case core.EvToolCall:
+		input := e.Input
+		if len(input) == 0 {
+			input = json.RawMessage("{}")
+		}
+		v = map[string]any{"type": "tool_call", "id": e.ID, "name": e.Name, "input": input}
+	case core.EvToolResult:
+		v = map[string]any{"type": "tool_result", "id": e.ID, "name": e.Name, "output": e.Output, "is_error": e.IsError}
+	case core.EvTurnComplete:
+		v = map[string]any{"type": "turn", "input_tokens": e.InputTokens, "output_tokens": e.OutputTokens, "elapsed_ms": e.ElapsedMs, "first_token_ms": e.FirstTokenMs}
+	case core.EvCompacted:
+		v = map[string]any{"type": "compacted", "before_tokens": e.BeforeTokens, "messages_dropped": e.MessagesDropped}
+	case core.EvDone:
+		v = map[string]any{"type": "done", "stop_reason": string(e.StopReason)}
+	default:
+		v = map[string]any{"type": "unknown"}
+	}
+	return core.MarshalString(v, "")
 }
 
 // expandStdin joins the prompt words; each lone "-" word becomes the stdin text (read once, on first use).

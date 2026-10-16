@@ -304,6 +304,9 @@ Options:
       --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
+      --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
+                                    (text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result
+                                    object as --json with "type": "result". Nothing else is printed.
   -h, --help                        Print help
   -V, --version                     Print version
 ```
@@ -493,6 +496,7 @@ Every option can also be set with an environment variable, shown in the second c
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Don't start MCP servers (see below) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Extra text added to the end of the system prompt for this run (not saved) |
 | `--json` | | With a one-shot prompt: print the answer as one JSON object (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) on stdout. Tool activity stays on stderr |
+| `--stream-json` | | With a one-shot prompt: print every event as one JSON object per line on stdout as it happens (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `done`), then the same result object as `--json` with `"type": "result"`. Nothing else is printed. For editors and scripts that want progress |
 | `--setup` | | Run the first-time wizard again (provider, key, model). Combine with `--tui` to run it inside the full-screen interface |
 | `--reset` | | Back to brand new: deletes `~/.agentiloop`, the agentiloop block in your shell profile and Keychain items the wizard created (on Windows: the user environment variables it set). Hand-written `export` lines are only commented out, and only if you say yes. Add `--yes` to skip the questions |
 | `--max-turns <n>` | | Max steps the agent may take per request (default 50) |
