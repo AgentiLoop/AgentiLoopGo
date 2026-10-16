@@ -170,6 +170,17 @@ func compactJSON(raw json.RawMessage) string {
 type wireUsageOAI struct {
 	PromptTokens     uint64 `json:"prompt_tokens"`
 	CompletionTokens uint64 `json:"completion_tokens"`
+	// OpenAI: cached_tokens is the part of prompt_tokens served from the prompt cache.
+	PromptTokensDetails *struct {
+		CachedTokens uint64 `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (u wireUsageOAI) cachedTokens() uint64 {
+	if u.PromptTokensDetails == nil {
+		return 0
+	}
+	return u.PromptTokensDetails.CachedTokens
 }
 
 func parseFinish(raw *string, hasToolCalls bool) core.StopReason {
@@ -247,13 +258,19 @@ func (o *OpenAI) wireRequest(req core.ProviderRequest, stream bool) map[string]a
 		Function fn     `json:"function"`
 	}
 	capField := "max_tokens"
-	if strings.HasPrefix(o.baseURL, "https://api.openai.com") {
+	official := strings.HasPrefix(o.baseURL, "https://api.openai.com")
+	if official {
 		capField = "max_completion_tokens"
 	}
 	body := map[string]any{
 		"model":    req.Model,
 		capField:   req.MaxTokens,
 		"messages": toWireMessages(req.System, req.Messages),
+	}
+	// api.openai.com only: routes the automatic prompt cache so every turn of
+	// a session hits the same cache. Other servers may reject unknown fields.
+	if official && req.CacheKey != "" {
+		body["prompt_cache_key"] = req.CacheKey
 	}
 	if len(req.Tools) > 0 {
 		var tools []tool
@@ -293,6 +310,9 @@ func (o *OpenAI) sendResponses(ctx context.Context, req core.ProviderRequest) (*
 			tools = append(tools, map[string]any{"type": "function", "name": t.Name, "description": t.Description, "parameters": t.InputSchema})
 		}
 		body["tools"] = tools
+	}
+	if req.CacheKey != "" {
+		body["prompt_cache_key"] = req.CacheKey
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -616,10 +636,11 @@ func (o *OpenAI) Complete(ctx context.Context, req core.ProviderRequest) (core.P
 		usage = *wire.Usage
 	}
 	return core.ProviderResponse{
-		Message:      core.Message{Role: core.RoleAssistant, Content: content},
-		StopReason:   parseFinish(ch.FinishReason, len(ch.Message.ToolCalls) > 0),
-		InputTokens:  usage.PromptTokens,
-		OutputTokens: usage.CompletionTokens,
+		Message:         core.Message{Role: core.RoleAssistant, Content: content},
+		StopReason:      parseFinish(ch.FinishReason, len(ch.Message.ToolCalls) > 0),
+		InputTokens:     usage.PromptTokens,
+		OutputTokens:    usage.CompletionTokens,
+		CacheReadTokens: usage.cachedTokens(),
 	}, nil
 }
 
@@ -723,9 +744,10 @@ func (o *OpenAI) CompleteStream(ctx context.Context, req core.ProviderRequest, o
 		return core.ProviderResponse{}, err
 	}
 	return core.ProviderResponse{
-		Message:      core.Message{Role: core.RoleAssistant, Content: content},
-		StopReason:   parseFinish(finish, len(calls) > 0),
-		InputTokens:  usage.PromptTokens,
-		OutputTokens: usage.CompletionTokens,
+		Message:         core.Message{Role: core.RoleAssistant, Content: content},
+		StopReason:      parseFinish(finish, len(calls) > 0),
+		InputTokens:     usage.PromptTokens,
+		OutputTokens:    usage.CompletionTokens,
+		CacheReadTokens: usage.cachedTokens(),
 	}, nil
 }

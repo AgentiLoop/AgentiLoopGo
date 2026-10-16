@@ -132,7 +132,7 @@ func TestCodexStreamAssemblesTextToolCallAndUsage(t *testing.T) {
 		`{"type":"response.function_call_arguments.delta","item_id":"fc1","delta":"{\"pa"}`,
 		`{"type":"response.output_item.done","item":{"type":"function_call","id":"fc1","call_id":"call_9","name":"list_dir","arguments":"{\"path\":\"/tmp\"}"}}`,
 		`{"type":"response.output_item.done","item":{"type":"web_search_call","id":"ws1"}}`,
-		`{"type":"response.completed","response":{"usage":{"input_tokens":43,"output_tokens":5}}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":43,"output_tokens":5,"input_tokens_details":{"cached_tokens":40}}}}`,
 	)
 	base, seen := codexServer(t, [2]string{"200", body})
 	p := NewCodex(codexAuthFile(t, testJWT(codexFar, "acct")), base, "http://unused")
@@ -144,8 +144,8 @@ func TestCodexStreamAssemblesTextToolCallAndUsage(t *testing.T) {
 	if !reflect.DeepEqual(deltas, []string{"Let me ", "look."}) || resp.Message.Text() != "Let me look." {
 		t.Fatal(deltas, resp.Message.Text())
 	}
-	if resp.StopReason != core.StopToolUse || resp.InputTokens != 43 || resp.OutputTokens != 5 {
-		t.Fatal(resp.StopReason, resp.InputTokens, resp.OutputTokens)
+	if resp.StopReason != core.StopToolUse || resp.InputTokens != 43 || resp.OutputTokens != 5 || resp.CacheReadTokens != 40 {
+		t.Fatal(resp.StopReason, resp.InputTokens, resp.OutputTokens, resp.CacheReadTokens)
 	}
 	calls := resp.Message.ToolUses()
 	if len(calls) != 1 || calls[0].ID != "call_9" || calls[0].Name != "list_dir" || string(calls[0].Input) != `{"path":"/tmp"}` {

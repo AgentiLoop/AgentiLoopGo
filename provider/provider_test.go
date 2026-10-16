@@ -241,7 +241,7 @@ data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":
 
 data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
 
-data: {"id":"c1","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":139,"completion_tokens":21,"total_tokens":160}}
+data: {"id":"c1","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":139,"completion_tokens":21,"total_tokens":160,"prompt_tokens_details":{"cached_tokens":128}}}
 
 data: [DONE]
 
@@ -256,7 +256,7 @@ func TestOpenAIStreamAssemblesTextAndFragmentedToolCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(deltas, []string{"Let me ", "look."}) || resp.Message.Text() != "Let me look." ||
-		resp.StopReason != core.StopToolUse || resp.InputTokens != 139 || resp.OutputTokens != 21 {
+		resp.StopReason != core.StopToolUse || resp.InputTokens != 139 || resp.OutputTokens != 21 || resp.CacheReadTokens != 128 || resp.CacheWriteTokens != 0 {
 		t.Fatalf("%v %+v", deltas, resp)
 	}
 	calls := resp.Message.ToolUses()
@@ -299,10 +299,36 @@ func TestOpenAINonStreamingToolCallWithStopIsToolUse(t *testing.T) {
 	}
 	// Some servers say "stop" even when tool_calls are present; we must still loop.
 	calls := resp.Message.ToolUses()
-	if resp.StopReason != core.StopToolUse || calls[0].Name != "bash" || resp.InputTokens != 7 || resp.OutputTokens != 3 {
+	if resp.StopReason != core.StopToolUse || calls[0].Name != "bash" || resp.InputTokens != 7 || resp.OutputTokens != 3 || resp.CacheReadTokens != 0 {
 		t.Fatalf("%+v", resp)
 	}
 	jsonEq(t, calls[0].Input, `{"command":"ls"}`)
+}
+
+func TestPromptCacheKeyOnlyGoesToOfficialOpenAI(t *testing.T) {
+	body := func(base string, r core.ProviderRequest) map[string]any {
+		data, err := json.Marshal(NewOpenAI("k", base).wireRequest(r, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	r := req()
+	r.CacheKey = "sess-1"
+	if official := body(openAIDefaultBaseURL, r); official["prompt_cache_key"] != "sess-1" {
+		t.Fatalf("official: %v", official)
+	}
+	if local := body("http://localhost:11434/v1", r); local["prompt_cache_key"] != nil {
+		t.Fatalf("local: %v", local)
+	}
+	r.CacheKey = ""
+	if official := body(openAIDefaultBaseURL, r); official["prompt_cache_key"] != nil {
+		t.Fatalf("empty key: %v", official)
+	}
 }
 
 func TestOpenAI401NamesProviderAndHint(t *testing.T) {

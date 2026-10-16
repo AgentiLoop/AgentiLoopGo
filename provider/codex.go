@@ -412,8 +412,11 @@ func readResponsesStream(resp *http.Response, onText func(string), who string) (
 				} `json:"item"`
 				Response struct {
 					Usage struct {
-						Input  uint64 `json:"input_tokens"`
-						Output uint64 `json:"output_tokens"`
+						Input        uint64 `json:"input_tokens"`
+						Output       uint64 `json:"output_tokens"`
+						InputDetails struct {
+							Cached uint64 `json:"cached_tokens"`
+						} `json:"input_tokens_details"`
 					} `json:"usage"`
 					Incomplete struct {
 						Reason string `json:"reason"`
@@ -453,6 +456,7 @@ func readResponsesStream(resp *http.Response, onText func(string), who string) (
 					}
 				case "response.completed", "response.incomplete":
 					out.InputTokens, out.OutputTokens = ev.Response.Usage.Input, ev.Response.Usage.Output
+					out.CacheReadTokens = ev.Response.Usage.InputDetails.Cached
 					if ev.Type == "response.incomplete" {
 						out.StopReason = core.StopOther
 						if ev.Response.Incomplete.Reason == "max_output_tokens" {

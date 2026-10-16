@@ -426,6 +426,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	} else {
 		session = core.NewSession(cwd, prov.Name(), agent.Model())
 	}
+	agent.SetCacheKey(session.ID)
 
 	return &cmdState{agent: agent, provider: prov, saved: saved, session: session, sessionsDir: sdir, mcp: mgr, setup: setup}, nil
 }
@@ -758,6 +759,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		tools.ClearUndo()
 		tools.ClearTodos()
 		st.session = core.NewSession(st.session.Cwd, st.provider.Name(), agent.Model())
+		agent.SetCacheKey(st.session.ID)
 		say("context and tool history cleared; new session " + st.session.ID)
 	case "/model":
 		models := fetchModels(ctx, st.provider)
@@ -927,6 +929,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		agent.Clear()
 		agent.History = append([]core.Message(nil), s.History...)
 		agent.SetModel(s.Model)
+		agent.SetCacheKey(s.ID)
 		say(fmt.Sprintf("resumed session %s (%d messages, model %s): %s", s.ID, len(s.History), s.Model, s.Title()))
 		st.session = s
 	case "/mcp":

@@ -139,14 +139,19 @@ type Agent struct {
 	pendingText strings.Builder
 	// limits resolved from the provider catalog for config.Model; cleared on SetModel.
 	limits *ModelLimits
+	// cacheKey is sent as ProviderRequest.CacheKey on every turn; set to the session id by the CLI.
+	cacheKey string
 }
 
 func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config AgentConfig, tc ToolContext) *Agent {
 	return &Agent{provider: p, tools: tools, policy: policy, config: config, tc: tc}
 }
 
-func (a *Agent) Model() string           { return a.config.Model }
-func (a *Agent) SetModel(m string)       { a.config.Model = m; a.limits = nil }
+func (a *Agent) Model() string     { return a.config.Model }
+func (a *Agent) SetModel(m string) { a.config.Model = m; a.limits = nil }
+
+// SetCacheKey keys the provider's prompt cache on this conversation (see ProviderRequest.CacheKey).
+func (a *Agent) SetCacheKey(key string)  { a.cacheKey = key }
 func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
 
 // Usage returns the tokens spent since this agent was created; Clear does not reset it.
@@ -353,6 +358,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			Messages:  append([]Message(nil), a.History...),
 			Tools:     a.toolSpecs(),
 			MaxTokens: limits.MaxTokens,
+			CacheKey:  a.cacheKey,
 		}
 		if err := budgetRequest(&req, limits); err != nil {
 			return err

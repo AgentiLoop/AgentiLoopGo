@@ -21,6 +21,10 @@ type ProviderRequest struct {
 	Messages  []Message
 	Tools     []ToolSpec
 	MaxTokens int
+	// CacheKey: stable id for the conversation (the session id). Providers that route
+	// their prompt cache by key (OpenAI prompt_cache_key) send it along so every turn
+	// of a session lands on the same cache. Empty = don't send.
+	CacheKey string
 }
 
 type ProviderResponse struct {
