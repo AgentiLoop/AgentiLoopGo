@@ -255,6 +255,10 @@ func run() error {
 					track(ev)
 				}
 			}
+			prompt, attached := core.ExpandMentions(prompt, cwd)
+			for _, a := range attached {
+				fmt.Fprintln(os.Stderr, core.DescribeAttachment(a))
+			}
 			err = st.agent.Run(ctx, prompt, onEvent)
 		}
 		st.persist()
@@ -481,6 +485,10 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 					q.Send(uiDiff{*change})
 				}
 			}
+			line, attached := core.ExpandMentions(line, cwd)
+			for _, a := range attached {
+				q.Send(uiLine{core.DescribeAttachment(a)})
+			}
 			if cancelled, err := runCancellable(ctx, st.agent, line, onEvent, cancel); cancelled {
 				q.Send(uiLine{"Cancelled. Session kept; send your next prompt."})
 			} else if err != nil {
@@ -587,6 +595,10 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			p.cancel = stop
 		}
 		tools.BeginUndoTurn()
+		line, attached := core.ExpandMentions(line, cwd)
+		for _, a := range attached {
+			fmt.Fprintln(os.Stderr, core.DescribeAttachment(a))
+		}
 		err = st.agent.Run(runCtx, line, renderLine)
 		cancelled := runCtx.Err() != nil && ctx.Err() == nil
 		stop()

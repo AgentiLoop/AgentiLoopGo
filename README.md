@@ -433,6 +433,12 @@ Keys in the TUI: **Enter** sends · **↑ / ↓** go through earlier prompts · 
 
 ---
 
+## Mention files with @
+
+Type `@` followed by a path anywhere in a prompt and AgentiLoop attaches that file to what the model receives: `explain @src/main.rs` sends your sentence plus the file's text with line numbers. A folder (`@src`) attaches its listing. Paths are relative to the project folder (or absolute, or `~/…`); a word that names nothing is left alone, so e-mail addresses are safe. Files are cut at 64 KB, folders at 200 entries, and a 📎 line shows what was attached. Works in the TUI, the chat and one-shot prompts.
+
+---
+
 ## It remembers your setup
 
 You only type your options once. AgentiLoop saves how you launched it, so next time a plain `agentiloop` starts the same way:
