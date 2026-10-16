@@ -23,6 +23,8 @@ type AgentConfig struct {
 	// history is summarized before the next request. nil = compactFraction of
 	// the model's context window (or FallbackCompactAt if unknown). 0 disables.
 	CompactAtTokens *uint64
+	// Hooks (.agentiloop/hooks.json) run around tool calls and at the end of a run.
+	Hooks Hooks
 }
 
 func DefaultAgentConfig() AgentConfig {
@@ -155,6 +157,7 @@ func (a *Agent) addUsage(input, output uint64) {
 func (a *Agent) Provider() Provider       { return a.provider }
 func (a *Agent) Tools() *ToolRegistry     { return a.tools }
 func (a *Agent) Policy() PermissionPolicy { return a.policy }
+func (a *Agent) Hooks() Hooks             { return a.config.Hooks }
 
 // Limits in effect for the current model, once a run has resolved them (nil before).
 func (a *Agent) Limits() *ModelLimits {
@@ -374,6 +377,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 
 		if resp.StopReason != StopToolUse || len(calls) == 0 {
 			onEvent(EvDone{resp.StopReason})
+			a.config.Hooks.RunStop(ctx, a.tc.Cwd, resp.StopReason)
 			return nil
 		}
 
@@ -430,7 +434,26 @@ func (a *Agent) execute(ctx context.Context, name string, input json.RawMessage)
 	case Cancel:
 		return "", Cancelled(name)
 	}
-	return tool.Call(ctx, a.tc, input)
+	hooks := a.config.Hooks
+	if fb := hooks.RunPre(ctx, a.tc.Cwd, name, input); fb != nil {
+		return "", Denied(fmt.Sprintf("blocked by a PreToolUse hook (`%s`): %s", fb.Command, fb.Message))
+	}
+	out, err := tool.Call(ctx, a.tc, input)
+	text, isError := out, false
+	if err != nil {
+		text, isError = err.Error(), true
+	}
+	feedback := hooks.RunPost(ctx, a.tc.Cwd, name, input, text, isError)
+	if len(feedback) == 0 {
+		return out, err
+	}
+	for _, fb := range feedback {
+		text += fmt.Sprintf("\n\n[PostToolUse hook `%s`]: %s", fb.Command, fb.Message)
+	}
+	if isError {
+		return "", Failed("%s", text)
+	}
+	return text, nil
 }
 
 // Transcript is the plain-text rendering of the history for the compaction prompt.

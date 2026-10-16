@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -472,5 +475,64 @@ func TestUsageAccumulatesAcrossRequestsAndSurvivesClear(t *testing.T) {
 	a.Clear()
 	if a.Usage().Requests != 3 {
 		t.Fatal("Clear must keep the running total")
+	}
+}
+
+func writeHooksFile(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, ".agentiloop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".agentiloop", "hooks.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentHooksBlockCallsAddFeedbackAndRunOnStop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh")
+	}
+	dir := t.TempDir()
+	writeHooksFile(t, dir, `{"hooks":{
+		"PreToolUse":[{"matcher":"echo","command":"grep -q forbidden && { echo 'not that' >&2; exit 2; }; exit 0"}],
+		"PostToolUse":[{"matcher":"echo","command":"echo looks good; exit 2"}],
+		"Stop":[{"command":"cat > stop.json"}]
+	}}`)
+	hooks, errs := LoadHooks(HookPaths(dir, ""))
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	p := &scripted{responses: []ProviderResponse{
+		toolCall("t1", "echo", `{"msg":"forbidden"}`),
+		toolCall("t2", "echo", `{"msg":"fine"}`),
+		text("done"),
+	}}
+	cfg := cfgTurns(5)
+	cfg.Hooks = hooks
+	tools := NewToolRegistry()
+	tools.Register(echo{})
+	a := NewAgent(p, tools, AllowAll{}, cfg, ToolContext{Cwd: dir})
+	err, evs := collect(a, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []EvToolResult
+	for _, e := range evs {
+		if r, ok := e.(EvToolResult); ok {
+			results = append(results, r)
+		}
+	}
+	if len(results) != 2 {
+		t.Fatalf("results: %+v", results)
+	}
+	if !results[0].IsError || !strings.Contains(results[0].Output, "blocked by a PreToolUse hook") || !strings.Contains(results[0].Output, "not that") {
+		t.Fatalf("first: %+v", results[0])
+	}
+	if results[1].IsError || !strings.HasPrefix(results[1].Output, "echo:fine") || !strings.Contains(results[1].Output, "[PostToolUse hook `echo looks good; exit 2`]: looks good") {
+		t.Fatalf("second: %+v", results[1])
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "stop.json"))
+	if err != nil || !strings.Contains(string(b), `"stop_reason":"end_turn"`) {
+		t.Fatal(string(b), err)
 	}
 }

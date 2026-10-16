@@ -380,6 +380,14 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	}
 	config.SystemPrompt = core.AppendInstructions(config.SystemPrompt, instructions)
 	config.SystemPrompt = appendExtra(config.SystemPrompt, cli.appendPrompt)
+	hooks, hookErrs := core.LoadHooks(core.HookPaths(cwd, agentiloopHome()))
+	for _, e := range hookErrs {
+		note("hooks: " + e)
+	}
+	if len(hooks) > 0 {
+		note(fmt.Sprintf("hooks: %d loaded (/hooks lists them)", len(hooks)))
+	}
+	config.Hooks = hooks
 
 	// Remember this launch (model per provider always; UI options only for interactive runs).
 	saved.SetModel(prov.Name(), config.Model)
@@ -699,6 +707,7 @@ const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
+	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
@@ -811,6 +820,8 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say(text)
 	case "/commands":
 		say(core.CommandListing(core.LoadCommands(st.session.Cwd, agentiloopHome())))
+	case "/hooks":
+		say(st.agent.Hooks().Listing())
 	case "/todos":
 		if t := tools.CurrentTodos(); t != "" {
 			say(t)
