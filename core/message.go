@@ -44,8 +44,28 @@ type ContentBlock struct {
 
 func TextBlock(text string) ContentBlock { return ContentBlock{Type: BlockText, Text: text} }
 
+// ToolUseBlock stores input as canonical JSON (object keys sorted, compact, numbers verbatim),
+// the way the Rust twin keeps it, so the requests sent back to the provider match (Rust re-prints
+// fractional numbers, 1.50 as 1.5; integers and everything else are identical).
 func ToolUseBlock(id, name string, input json.RawMessage) ContentBlock {
-	return ContentBlock{Type: BlockToolUse, ID: id, Name: name, Input: input}
+	return ContentBlock{Type: BlockToolUse, ID: id, Name: name, Input: canonicalJSON(input)}
+}
+
+// canonicalJSON re-encodes raw with sorted keys and no HTML escaping; invalid JSON is returned as is.
+func canonicalJSON(raw json.RawMessage) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return raw
+	}
+	return json.RawMessage(bytes.TrimRight(buf.Bytes(), "\n"))
 }
 
 func ToolResultBlock(toolUseID, content string, isError bool) ContentBlock {
