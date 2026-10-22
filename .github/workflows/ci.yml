@@ -39,3 +39,26 @@ jobs:
           for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
             CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/agentiloop
           done
+
+  # Builds this repo and its Rust twin (AgentiLoopCLI, main) and runs the twin's
+  # scripts/parity.py: flags, /help, provider requests, --json/--stream-json output and
+  # session files must match, and each binary must resume the other's sessions.
+  parity:
+    name: parity (Go ↔ Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: AgentiLoop/AgentiLoopCLI
+          path: AgentiLoopCLI
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: AgentiLoopCLI
+      - run: go build -o agentiloop ./cmd/agentiloop
+      - run: cd AgentiLoopCLI && cargo build -p agentiloop
+      - run: python3 AgentiLoopCLI/scripts/parity.py --rust AgentiLoopCLI/target/debug/agentiloop --go agentiloop --rust-src AgentiLoopCLI --go-src .
