@@ -304,6 +304,8 @@ Options:
                                     wizard created. Asks first unless --yes.
       --allow-tool NAME             Run this tool without asking (repeatable or comma-separated; NAME* matches a prefix, e.g. mcp_*)
       --deny-tool NAME              Never run this tool NAME; the model is told it was denied (same name rules). Beats --allow-tool and --yes
+      --plan                        Plan mode: tools that change something (write_file, edit_file, bash, task, mutating MCP
+                                    tools) are switched off and the model is asked for a plan instead. Toggle with /plan. [env: AGENTILOOP_PLAN]
       --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
@@ -502,6 +504,7 @@ Every option can also be set with an environment variable, shown in the second c
 | `--yes` | `AGENTILOOP_YES` | Don't ask before running tools. ⚠️ Only for trusted, automated use |
 | `--allow-tool <name>` | | Run this tool without asking; repeat the option or use commas. `mcp_*` matches a prefix. Good for CI without `--yes` |
 | `--deny-tool <name>` | | Never run this tool: the model is told it was denied. Beats `--allow-tool` and `--yes` |
+| `--plan` | `AGENTILOOP_PLAN` | Plan mode: start with every tool that changes something switched off (`write_file`, `edit_file`, `bash`, `task`, MCP tools that aren't read-only). The model reads and searches, then answers with a numbered plan instead of doing the work. `/plan` turns it off (or on) during a session |
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Don't start MCP servers (see below) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Extra text added to the end of the system prompt for this run (not saved) |
 | `--json` | | With a one-shot prompt: print the answer as one JSON object (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) on stdout. Tool activity stays on stderr |
@@ -546,6 +549,7 @@ Type these at the prompt, in the TUI or the chat:
 | `/diff` | Show what changed in the git working tree (status plus diff, cut at 200 lines) |
 | `/commands` | Your own commands: every `.agentiloop/commands/<name>.md` (project) or `~/.agentiloop/commands/<name>.md` becomes `/<name>`, which sends the file as the prompt (`$ARGUMENTS` is replaced by what you type after it; `$1`–`$9` by its individual words). This lists them |
 | `/hooks` | Show the hooks loaded from `.agentiloop/hooks.json` (see [Hooks](#hooks-run-your-own-commands-around-tool-calls)) |
+| `/plan [on\|off]` | Plan mode on or off (no argument toggles). While it is on, tools that change something refuse to run and the model answers with a plan; the TUI shows **PLAN** in the status line |
 | `/init` | Create a starter `AGENTS.md` for the current project (never overwrites) |
 | `/export [file]` | Save the conversation as a Markdown file (`/export notes.md`, or a default name in the project folder) |
 | `/compact` | Summarize the conversation now to free up space |

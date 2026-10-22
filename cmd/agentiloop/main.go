@@ -34,6 +34,7 @@ type cliArgs struct {
 	allowTools, denyTools                     []string
 	yes, continueLast, newSession, tui, noTUI bool
 	noMCP, setup, reset, jsonOut, streamJSON  bool
+	plan                                      bool
 	maxTurns                                  *int
 	maxRetries                                int
 	compactAt                                 *uint64
@@ -95,6 +96,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.BoolVar(&c.reset, "reset", false, "Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,\nmcp.json), the agentiloop block in your shell profile and Keychain items the\nwizard created. Asks first unless --yes.")
 	fs.StringSliceVar(&c.allowTools, "allow-tool", nil, "Run this tool without asking (repeatable or comma-separated; `NAME`* matches a prefix, e.g. mcp_*)")
 	fs.StringSliceVar(&c.denyTools, "deny-tool", nil, "Never run this tool `NAME`; the model is told it was denied (same name rules). Beats --allow-tool and --yes")
+	fs.BoolVar(&c.plan, "plan", false, "Plan mode: tools that change something (write_file, edit_file, bash, task, mutating MCP\ntools) are switched off and the model is asked for a plan instead. Toggle with /plan. [env: AGENTILOOP_PLAN]")
 	fs.StringVar(&c.appendPrompt, "append-system-prompt", "", "Extra `TEXT` added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]")
 	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
 	fs.BoolVar(&c.streamJSON, "stream-json", false, "One-shot only: print every event as one JSON object per line on stdout as it happens\n(text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result\nobject as --json with \"type\": \"result\". Nothing else is printed.")
@@ -129,6 +131,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		env("model", "AGENTILOOP_MODEL", func(v string) error { c.model = v; return nil }),
 		env("yes", "AGENTILOOP_YES", func(v string) error { c.yes = truthy(v); return nil }),
 		env("tui", "AGENTILOOP_TUI", func(v string) error { c.tui = truthy(v); return nil }),
+		env("plan", "AGENTILOOP_PLAN", func(v string) error { c.plan = truthy(v); return nil }),
 		env("append-system-prompt", "AGENTILOOP_APPEND_SYSTEM_PROMPT", func(v string) error { c.appendPrompt = v; return nil }),
 		env("no-mcp", "AGENTILOOP_NO_MCP", func(v string) error { c.noMCP = truthy(v); return nil }),
 		env("max-retries", "AGENTILOOP_MAX_RETRIES", func(v string) error {
@@ -438,6 +441,10 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		session = core.NewSession(cwd, prov.Name(), agent.Model())
 	}
 	agent.SetCacheKey(session.ID)
+	agent.SetPlanMode(cli.plan)
+	if cli.plan {
+		note(planLine(true))
+	}
 
 	return &cmdState{agent: agent, provider: prov, saved: saved, session: session, sessionsDir: sdir, mcp: mgr, setup: setup}, nil
 }
@@ -458,7 +465,11 @@ type cmdState struct {
 
 func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan string, cancel <-chan struct{}, uiDone <-chan error, cwd string) error {
 	status := func() string {
-		return fmt.Sprintf(" AgentiLoop  %s  %s  %s  session %s ", cwd, st.provider.Name(), st.agent.Model(), st.session.ID)
+		plan := ""
+		if st.agent.PlanMode() {
+			plan = "  PLAN"
+		}
+		return fmt.Sprintf(" AgentiLoop  %s  %s  %s  session %s%s ", cwd, st.provider.Name(), st.agent.Model(), st.session.ID, plan)
 	}
 	q.Send(uiStatus{status()})
 	// A continued session shows its earlier conversation, not an empty screen.
@@ -783,6 +794,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
+	"/plan [on|off]  plan mode: tools that change something are off, the model plans instead\n" +
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
@@ -898,6 +910,20 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say(core.CommandListing(core.LoadCommands(st.session.Cwd, agentiloopHome())))
 	case "/hooks":
 		say(st.agent.Hooks().Listing())
+	case "/plan":
+		on := !st.agent.PlanMode()
+		switch arg {
+		case "":
+		case "on":
+			on = true
+		case "off":
+			on = false
+		default:
+			say("usage: /plan [on|off]")
+			return nil
+		}
+		st.agent.SetPlanMode(on)
+		say(planLine(on))
 	case "/todos":
 		if t := tools.CurrentTodos(); t != "" {
 			say(t)
@@ -1009,6 +1035,14 @@ func usageLine(u core.Usage) string {
 		line += fmt.Sprintf(" (prompt cache: %d read, %d written)", u.CacheReadTokens, u.CacheWriteTokens)
 	}
 	return line
+}
+
+// planLine is what /plan and --plan print.
+func planLine(on bool) string {
+	if on {
+		return "plan mode on: write_file, edit_file, bash, task and other tools that change something are off; the model inspects and proposes a plan (/plan to turn it off)"
+	}
+	return "plan mode off: tools run again (with the usual permission prompts)"
 }
 
 func compactedLine(beforeTokens uint64, messagesDropped int) string {

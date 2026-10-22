@@ -779,3 +779,74 @@ func TestShellNoteHasTheCommandAndTheCutOutput(t *testing.T) {
 		t.Fatalf("%+v", a.History)
 	}
 }
+
+// peek is a read-only tool for the plan-mode test.
+type peek struct{}
+
+func (peek) Name() string        { return "peek" }
+func (peek) Description() string { return "peek" }
+func (peek) InputSchema() any    { return map[string]any{"type": "object"} }
+func (peek) IsMutating() bool    { return false }
+func (peek) Call(context.Context, ToolContext, json.RawMessage) (string, error) {
+	return "peeked", nil
+}
+
+func TestPlanModeRefusesMutatingToolsAndTaskAndAddsThePlanPrompt(t *testing.T) {
+	p := &scripted{responses: []ProviderResponse{
+		toolCall("1", "echo", `{"msg":"x"}`),
+		toolCall("2", "peek", `{}`),
+		toolCall("3", "task", `{"prompt":"explore"}`),
+		text("here is the plan"),
+	}}
+	tools := NewToolRegistry()
+	tools.Register(echo{})
+	tools.Register(peek{})
+	tools.Register(NewTaskTool(p, tools, AllowAll{}, cfgTurns(5)))
+	a := NewAgent(p, tools, AllowAll{}, cfgTurns(5), ToolContext{Cwd: "."})
+	if a.PlanMode() {
+		t.Fatal("plan mode must start off")
+	}
+	a.SetPlanMode(true)
+	err, evs := collect(a, "change x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []EvToolResult
+	for _, e := range evs {
+		if r, ok := e.(EvToolResult); ok {
+			results = append(results, r)
+		}
+	}
+	if len(results) != 3 {
+		t.Fatalf("%+v", results)
+	}
+	if !results[0].IsError || !strings.Contains(results[0].Output, "plan mode is on") || !strings.Contains(results[0].Output, "`echo`") {
+		t.Fatalf("%+v", results[0])
+	}
+	if results[1].IsError || results[1].Output != "peeked" {
+		t.Fatalf("%+v", results[1])
+	}
+	if !results[2].IsError || !strings.Contains(results[2].Output, "`task`") {
+		t.Fatalf("%+v", results[2])
+	}
+	for _, r := range p.reqs() {
+		if !strings.HasSuffix(r.System, PlanModePrompt) || !strings.HasPrefix(r.System, DefaultSystemPrompt) {
+			t.Fatalf("plan prompt missing: %q", r.System[:40])
+		}
+	}
+
+	// Off again: the prompt is plain and mutating tools run.
+	a.SetPlanMode(false)
+	p.responses = []ProviderResponse{toolCall("4", "echo", `{"msg":"y"}`), text("done")}
+	err, evs = collect(a, "now do it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !any_(evs, func(e Event) bool { r, ok := e.(EvToolResult); return ok && !r.IsError && r.Output == "echo:y" }) {
+		t.Fatalf("%+v", evs)
+	}
+	reqs := p.reqs()
+	if strings.Contains(reqs[len(reqs)-1].System, PlanModePrompt) {
+		t.Fatal("plan prompt still present")
+	}
+}

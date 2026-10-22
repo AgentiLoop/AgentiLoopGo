@@ -127,6 +127,13 @@ const compactSystemPrompt = "You compress conversation transcripts for an autono
 	"symbols touched (with paths), what has been verified to work, what failed and why, and any pending next steps. " +
 	"Do not add commentary. Output only the summary."
 
+// PlanModePrompt is added to the system prompt while plan mode is on (Agent.SetPlanMode).
+const PlanModePrompt = "PLAN MODE IS ON. You may only inspect the project: read files, list folders, search. " +
+	"Every tool that changes something (writing or editing files, shell commands, sub-agents) is switched off and will refuse. " +
+	"Do not try to work around that. Instead, work out what needs to be done and reply with a concrete, numbered plan: " +
+	"which files you would change and how, which commands you would run, and what could go wrong. " +
+	"Finish by telling the user to turn plan mode off (/plan) when they want you to carry it out."
+
 // transcriptResultLimit: tool output longer than this is trimmed in the compaction transcript.
 const transcriptResultLimit = 2_000
 
@@ -208,6 +215,8 @@ type Agent struct {
 	limits *ModelLimits
 	// cacheKey is sent as ProviderRequest.CacheKey on every turn; set to the session id by the CLI.
 	cacheKey string
+	// planMode: tools that change something are refused and the model is asked for a plan.
+	planMode bool
 }
 
 func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config AgentConfig, tc ToolContext) *Agent {
@@ -218,7 +227,13 @@ func (a *Agent) Model() string     { return a.config.Model }
 func (a *Agent) SetModel(m string) { a.config.Model = m; a.limits = nil }
 
 // SetCacheKey keys the provider's prompt cache on this conversation (see ProviderRequest.CacheKey).
-func (a *Agent) SetCacheKey(key string)  { a.cacheKey = key }
+func (a *Agent) SetCacheKey(key string) { a.cacheKey = key }
+
+// SetPlanMode turns plan mode on/off: while on, every mutating tool and `task`
+// refuse to run and PlanModePrompt is added to the system prompt, so the model
+// inspects and plans.
+func (a *Agent) SetPlanMode(on bool)     { a.planMode = on }
+func (a *Agent) PlanMode() bool          { return a.planMode }
 func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
 
 // Usage returns the tokens spent since this agent was created; Clear does not reset it.
@@ -425,9 +440,13 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 	a.History = append(a.History, UserText(userInput))
 
 	for range a.config.MaxTurns {
+		system := a.config.SystemPrompt
+		if a.planMode {
+			system += "\n\n" + PlanModePrompt
+		}
 		req := ProviderRequest{
 			Model:     a.config.Model,
-			System:    a.config.SystemPrompt,
+			System:    system,
 			Messages:  append([]Message(nil), a.History...),
 			Tools:     a.toolSpecs(),
 			MaxTokens: limits.MaxTokens,
@@ -514,6 +533,9 @@ func (a *Agent) execute(ctx context.Context, name string, input json.RawMessage)
 	}
 	if len(input) == 0 {
 		input = json.RawMessage("{}")
+	}
+	if a.planMode && (tool.IsMutating() || name == TaskToolName) {
+		return "", Denied(fmt.Sprintf("plan mode is on: `%s` is switched off; describe what you would do instead", name))
 	}
 	switch a.policy.Check(ctx, name, tool.IsMutating(), input) {
 	case Deny:
