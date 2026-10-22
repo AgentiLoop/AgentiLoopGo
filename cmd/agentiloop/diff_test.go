@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,5 +163,91 @@ func TestFilesPaneStacksAllDiffsAndToggles(t *testing.T) {
 	a.Apply(uiClear{})
 	if strings.Contains(screen(t, a, 120, 24), "changed") {
 		t.Fatal("clear kept pane")
+	}
+}
+
+func TestWheelOverFilesPaneScrollsThePaneNotTheTranscript(t *testing.T) {
+	a := NewApp("s")
+	var after strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&after, "line%d\n", i)
+	}
+	a.Apply(change("big.txt", "", after.String()))
+	// The transcript shows the same diff, so only look at the pane (right 48 columns).
+	pane := func() string {
+		var sb strings.Builder
+		for _, l := range strings.Split(screen(t, a, 120, 16), "\n") {
+			r := []rune(l)
+			if len(r) > 72 {
+				sb.WriteString(string(r[72:]))
+			}
+			sb.WriteByte('\n')
+		}
+		return sb.String()
+	}
+	wheel := func(b tcell.ButtonMask, x int) { a.HandleMouse(tcell.NewEventMouse(x, 2, b, tcell.ModNone)) }
+	// 12 rows of pane can't hold 30 added lines, so the diff is cut off at the bottom.
+	if p := pane(); !strings.Contains(p, "1 + line1") || strings.Contains(p, "+ line30") {
+		t.Fatal(p)
+	}
+	for i := 0; i < 10; i++ {
+		wheel(tcell.WheelDown, 100)
+	}
+	if p := pane(); !strings.Contains(p, "+ line30") || strings.Contains(p, "1 + line1") {
+		t.Fatal(p)
+	}
+	if a.scroll != 0 {
+		t.Fatal("transcript must not move", a.scroll)
+	}
+	// Clamped at the end, so one notch back up moves immediately.
+	wheel(tcell.WheelUp, 100)
+	if strings.Contains(pane(), "+ line30") {
+		t.Fatal("wheel up didn't move the pane")
+	}
+	// Over the transcript the wheel still scrolls the transcript.
+	wheel(tcell.WheelUp, 10)
+	if a.scroll != 3 {
+		t.Fatal(a.scroll)
+	}
+	// A new change snaps the pane back to the top of that file's diff.
+	a.Apply(change("big.txt", "", after.String()+"line31\n"))
+	if !strings.Contains(pane(), "1 + line1") {
+		t.Fatal(pane())
+	}
+}
+
+func TestDraggingTheDividerResizesTheFilesPane(t *testing.T) {
+	a := NewApp("s")
+	a.Apply(change("a.txt", "", "x\n"))
+	ev := func(b tcell.ButtonMask, x int) Action {
+		return a.HandleMouse(tcell.NewEventMouse(x, 3, b, tcell.ModNone))
+	}
+	// 120 cols → default pane is 48 wide, divider at column 72.
+	screen(t, a, 120, 16)
+	if a.filesArea.x != 72 {
+		t.Fatal(a.filesArea.x)
+	}
+	if ev(tcell.Button1, 72) != nil || a.sel != nil {
+		t.Fatal("a click on the divider starts a resize, not a selection")
+	}
+	ev(tcell.Button1, 60)
+	screen(t, a, 120, 16)
+	if a.filesArea.x != 60 {
+		t.Fatal(a.filesArea.x)
+	}
+	// The transcript keeps at least 40 columns however far it's dragged.
+	ev(tcell.Button1, 5)
+	screen(t, a, 120, 16)
+	if a.filesArea.x != 40 {
+		t.Fatal(a.filesArea.x)
+	}
+	if ev(tcell.ButtonNone, 5) != nil || a.draggingDivider {
+		t.Fatal("release should end the drag without copying")
+	}
+	// After release, dragging elsewhere no longer moves the divider.
+	ev(tcell.Button1, 90)
+	screen(t, a, 120, 16)
+	if a.filesArea.x != 40 {
+		t.Fatal(a.filesArea.x)
 	}
 }

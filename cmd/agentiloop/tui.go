@@ -306,6 +306,15 @@ type App struct {
 	paneRows []diffRendered
 	// showFiles: Ctrl-F toggles the files pane.
 	showFiles bool
+	// filesScroll: wheel offset of the files pane from its default view (the selected file's top).
+	filesScroll int
+	// filesArea: where the files pane was drawn last frame (nil when hidden), so
+	// the wheel over it scrolls the pane.
+	filesArea *area
+	// filesWidth: pane width the user dragged the divider to; 0 = the default split.
+	filesWidth int
+	// draggingDivider: the divider is being dragged (left button held since a click on it).
+	draggingDivider bool
 	// asking is set while the setup wizard waits for an answer on the input
 	// line; askSecret masks it.
 	asking, askSecret bool
@@ -398,6 +407,7 @@ func (a *App) Apply(msg UiMsg) {
 }
 
 func (a *App) refreshPane() {
+	a.filesScroll = 0
 	a.paneRows = a.paneRows[:0]
 	for _, f := range a.files {
 		a.paneRows = append(a.paneRows, renderDiff(f, paneMax, false))
@@ -632,19 +642,33 @@ func (a *App) recall(dir int) {
 	a.cursor = len(a.input)
 }
 
-// HandleMouse: the wheel scrolls the transcript; a left click on a link opens
-// it; a left drag selects text and copies it on release (mouse reporting hides
-// the terminal's own selection, so the TUI provides one).
+// HandleMouse: the wheel scrolls the transcript (or the files pane when over
+// it); a left click on a link opens it; a left drag selects text and copies it
+// on release (mouse reporting hides the terminal's own selection, so the TUI
+// provides one); dragging the files pane's divider resizes the pane.
 func (a *App) HandleMouse(ev *tcell.EventMouse) Action {
 	b := ev.Buttons()
 	x, y := ev.Position()
+	overFiles := a.filesArea != nil && a.filesArea.contains(x, y)
 	switch {
 	case b&tcell.WheelUp != 0:
 		a.sel = nil
-		a.scroll += 3
+		if overFiles {
+			a.filesScroll -= 3
+		} else {
+			a.scroll += 3
+		}
 	case b&tcell.WheelDown != 0:
 		a.sel = nil
-		a.scroll = max(a.scroll-3, 0)
+		if overFiles {
+			a.filesScroll += 3
+		} else {
+			a.scroll = max(a.scroll-3, 0)
+		}
+	case b&tcell.Button1 != 0 && a.draggingDivider:
+		if fa := a.filesArea; fa != nil {
+			a.filesWidth = max(fa.x+fa.w-x, 0)
+		}
 	case b&tcell.Button1 != 0 && a.mouseDown:
 		if sel := a.sel; sel != nil {
 			r := sel.area
@@ -658,6 +682,12 @@ func (a *App) HandleMouse(ev *tcell.EventMouse) Action {
 			}
 		}
 		a.mouseDown = true
+		// A press on the pane's left border starts a resize, not a selection.
+		if fa := a.filesArea; fa != nil && x == fa.x && fa.contains(x, y) {
+			a.draggingDivider = true
+			a.filesWidth = fa.w
+			return nil
+		}
 		for _, r := range a.selAreas {
 			if r.contains(x, y) {
 				a.sel = &selection{r, x, y, x, y}
@@ -666,6 +696,10 @@ func (a *App) HandleMouse(ev *tcell.EventMouse) Action {
 		}
 	case b == tcell.ButtonNone && a.mouseDown:
 		a.mouseDown = false
+		if a.draggingDivider {
+			a.draggingDivider = false
+			return nil
+		}
 		if sel := a.sel; sel != nil && (sel.ax != sel.hx || sel.ay != sel.hy) {
 			return actCopy{}
 		}
@@ -754,11 +788,17 @@ func (a *App) Draw(s tcell.Screen) {
 	a.selAreas = a.selAreas[:0]
 	// Claude Code-style "files changed" pane on the right, when there's room.
 	transcriptW := w
+	a.filesArea = nil
 	if a.showFiles && len(a.files) > 0 && w >= 100 {
+		// Dragging the divider overrides the default split; the transcript keeps at least 40 columns.
 		paneW := min(max(w*2/5, 36), 90)
+		if a.filesWidth > 0 {
+			paneW = min(max(a.filesWidth, 36), w-40)
+		}
 		transcriptW = w - paneW
 		a.drawFiles(s, transcriptW, 0, paneW, transcriptH)
 		a.selAreas = append(a.selAreas, area{transcriptW, 0, paneW, transcriptH})
+		a.filesArea = &area{transcriptW, 0, paneW, transcriptH}
 	}
 	a.drawTranscript(s, 0, 0, transcriptW, transcriptH)
 	a.selAreas = append(a.selAreas, area{0, 0, transcriptW, transcriptH})
@@ -940,7 +980,8 @@ func (a *App) drawTranscript(s tcell.Screen, x, y, w, h int) {
 
 // drawFiles is the right-hand pane: every changed file with its +/- counts,
 // then every file's diff stacked below. When they don't all fit, the view
-// starts at the most recently changed file.
+// starts at the most recently changed file; the mouse wheel over the pane
+// scrolls it.
 func (a *App) drawFiles(s tcell.Screen, x, y, w, h int) {
 	border := fg(tcell.ColorGray)
 	for row := y; row < y+h; row++ {
@@ -1009,7 +1050,10 @@ func (a *App) drawFiles(s tcell.Screen, x, y, w, h int) {
 		}
 	}
 	room := max(h-len(lines), 0)
-	start := min(selStart, max(len(stack)-room, 0))
+	maxStart := max(len(stack)-room, 0)
+	start := min(max(selStart+a.filesScroll, 0), maxStart)
+	// Keep the offset within range so the wheel reverses direction immediately.
+	a.filesScroll = start - selStart
 	lines = append(lines, stack[start:min(start+room, len(stack))]...)
 	for i, l := range lines {
 		if i >= h {
