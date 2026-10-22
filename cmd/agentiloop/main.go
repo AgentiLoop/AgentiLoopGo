@@ -326,7 +326,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	}
 	prov, err := provider.FromEnv(provName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w\n\nrun `agentiloop --setup --tui` to choose a provider and enter credentials", err)
 	}
 	registry := tools.DefaultRegistry()
 	// Codex models are trained on apply_patch; other providers keep the plain edit tools.
