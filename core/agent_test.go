@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	. "github.com/AgentiLoop/AgentiLoopGo/core"
 )
@@ -587,5 +588,168 @@ func TestTaskToolRunsAChildAgentAndReturnsOnlyItsAnswer(t *testing.T) {
 	}
 	if !strings.HasPrefix(FormatTaskOutcome(TaskOutcome{Answer: "  "}), "(the sub-agent gave no final answer)") {
 		t.Fatal(FormatTaskOutcome(TaskOutcome{}))
+	}
+}
+
+// flaky fails `failures` times with errText, then answers like scripted.
+type flaky struct {
+	mu                    sync.Mutex
+	failures, calls       int
+	errText               string
+	streamedBeforeFailing bool
+	inner                 *scripted
+}
+
+func (p *flaky) Name() string                                        { return "flaky" }
+func (p *flaky) DefaultModel() string                                { return "mock" }
+func (p *flaky) ListModels(ctx context.Context) ([]ModelInfo, error) { return p.inner.ListModels(ctx) }
+func (p *flaky) Complete(ctx context.Context, req ProviderRequest) (ProviderResponse, error) {
+	p.mu.Lock()
+	p.calls++
+	fail := p.failures > 0
+	if fail {
+		p.failures--
+	}
+	p.mu.Unlock()
+	if fail {
+		return ProviderResponse{}, errors.New(p.errText)
+	}
+	return p.inner.Complete(ctx, req)
+}
+func (p *flaky) CompleteStream(ctx context.Context, req ProviderRequest, on func(string)) (ProviderResponse, error) {
+	p.mu.Lock()
+	partial := p.streamedBeforeFailing && p.failures > 0
+	p.mu.Unlock()
+	if partial {
+		on("partial ")
+	}
+	resp, err := p.Complete(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	on(resp.Message.Text())
+	return resp, nil
+}
+func (p *flaky) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+func newFlaky(failures int, errText string, streamedBeforeFailing bool, responses ...ProviderResponse) *flaky {
+	return &flaky{failures: failures, errText: errText, streamedBeforeFailing: streamedBeforeFailing, inner: &scripted{responses: responses}}
+}
+
+func flakyAgent(p *flaky, maxRetries int) *Agent {
+	cfg := DefaultAgentConfig()
+	cfg.Model, cfg.MaxRetries = "mock", maxRetries
+	return NewAgent(p, NewToolRegistry(), policyFunc(func(string, bool) Permission { return Allow }), cfg, ToolContext{Cwd: "."})
+}
+
+func retryEvents(evs []Event) (out []EvRetry) {
+	for _, e := range evs {
+		if r, ok := e.(EvRetry); ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func TestTransientErrorsAreRecognisedByStatusOrMessage(t *testing.T) {
+	yes := []string{
+		"Anthropic 529 Service Overloaded (overloaded_error): Overloaded",
+		"Anthropic 429 Too Many Requests (rate_limit_error): slow down",
+		"openai 503 Service Unavailable : upstream",
+		"codex 500: internal",
+		"Anthropic stream error (overloaded_error): Overloaded",
+		"request to Anthropic failed: error sending request for url (https://x)",
+		"reading Anthropic stream: connection reset by peer",
+	}
+	no := []string{
+		"Anthropic 400 Bad Request (invalid_request_error): max_tokens 500 exceeds the limit",
+		"Anthropic 401 Unauthorized (authentication_error): invalid x-api-key",
+		"codex 429: ChatGPT plan usage limit reached; resets in ~5.0h",
+		"request to oMLX failed: connection refused",
+		"compaction produced an empty summary",
+	}
+	for _, s := range yes {
+		if !IsTransient(errors.New(s)) {
+			t.Fatalf("should be transient: %s", s)
+		}
+	}
+	for _, s := range no {
+		if IsTransient(errors.New(s)) {
+			t.Fatalf("should not be transient: %s", s)
+		}
+	}
+	if IsTransient(nil) {
+		t.Fatal("nil")
+	}
+}
+
+func TestRetryDelayDoublesFromOneSecondAndIsCapped(t *testing.T) {
+	for attempt, want := range map[int]time.Duration{1: time.Second, 2: 2 * time.Second, 3: 4 * time.Second, 9: 30 * time.Second} {
+		if got := RetryDelay(attempt); got != want {
+			t.Fatalf("attempt %d: got %v want %v", attempt, got, want)
+		}
+	}
+}
+
+func TestTransientProviderErrorsAreRetriedWithARetryEvent(t *testing.T) {
+	p := newFlaky(1, "Anthropic 529 Service Overloaded (overloaded_error): Overloaded", false, text("after retry"))
+	a := flakyAgent(p, 3)
+	err, evs := collect(a, "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.callCount() != 2 {
+		t.Fatalf("calls %d", p.callCount())
+	}
+	rs := retryEvents(evs)
+	if len(rs) != 1 || rs[0].Attempt != 1 || rs[0].MaxRetries != 3 || rs[0].DelayMs != 1000 || !strings.Contains(rs[0].Error, "529") {
+		t.Fatalf("%+v", rs)
+	}
+	found := false
+	for _, e := range evs {
+		if x, ok := e.(EvText); ok && x.Text == "after retry" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("%+v", evs)
+	}
+	if a.Usage().Requests != 1 {
+		t.Fatalf("a failed attempt is not counted as a request: %+v", a.Usage())
+	}
+}
+
+func TestRetriesStopAtMaxRetriesAndTheErrorIsReported(t *testing.T) {
+	p := newFlaky(2, "openai 503 Service Unavailable : down", false, text("never"))
+	a := flakyAgent(p, 1)
+	err, evs := collect(a, "hi")
+	if err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatal(err)
+	}
+	if p.callCount() != 2 || len(retryEvents(evs)) != 1 {
+		t.Fatalf("calls %d retries %d", p.callCount(), len(retryEvents(evs)))
+	}
+}
+
+func TestPermanentErrorsAndZeroRetriesFailAtOnce(t *testing.T) {
+	p := newFlaky(1, "Anthropic 401 Unauthorized (authentication_error): bad key", false, text("never"))
+	if err, _ := collect(flakyAgent(p, 3), "hi"); err == nil || p.callCount() != 1 {
+		t.Fatalf("%v calls %d", err, p.callCount())
+	}
+	p = newFlaky(1, "Anthropic 529 Service Overloaded", false, text("never"))
+	if err, _ := collect(flakyAgent(p, 0), "hi"); err == nil || p.callCount() != 1 {
+		t.Fatalf("%v calls %d", err, p.callCount())
+	}
+}
+
+func TestAFailureAfterStreamedTextIsNotRetried(t *testing.T) {
+	p := newFlaky(1, "reading Anthropic stream: connection reset by peer", true, text("never"))
+	err, evs := collect(flakyAgent(p, 3), "hi")
+	if err == nil || p.callCount() != 1 || len(retryEvents(evs)) != 0 {
+		t.Fatalf("%v calls %d retries %d", err, p.callCount(), len(retryEvents(evs)))
 	}
 }

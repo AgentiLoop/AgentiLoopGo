@@ -285,6 +285,8 @@ Options:
                                     (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
       --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
       --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
+      --max-retries N               Retries (N) of a provider call that fails transiently (rate limit, overloaded, 5xx,
+                                    dropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES] (default 3)
       --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
                                     [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
   -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
@@ -306,7 +308,7 @@ Options:
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
       --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
-                                    (text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result
+                                    (text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result
                                     object as --json with "type": "result". Nothing else is printed.
   -h, --help                        Print help
   -V, --version                     Print version
@@ -497,10 +499,11 @@ Every option can also be set with an environment variable, shown in the second c
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Don't start MCP servers (see below) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Extra text added to the end of the system prompt for this run (not saved) |
 | `--json` | | With a one-shot prompt: print the answer as one JSON object (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) on stdout. Tool activity stays on stderr |
-| `--stream-json` | | With a one-shot prompt: print every event as one JSON object per line on stdout as it happens (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `done`), then the same result object as `--json` with `"type": "result"`. Nothing else is printed. For editors and scripts that want progress |
+| `--stream-json` | | With a one-shot prompt: print every event as one JSON object per line on stdout as it happens (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), then the same result object as `--json` with `"type": "result"`. Nothing else is printed. For editors and scripts that want progress |
 | `--setup` | | Run the first-time wizard again (provider, key, model). Combine with `--tui` to run it inside the full-screen interface |
 | `--reset` | | Back to brand new: deletes `~/.agentiloop`, the agentiloop block in your shell profile and Keychain items the wizard created (on Windows: the user environment variables it set). Hand-written `export` lines are only commented out, and only if you say yes. Add `--yes` to skip the questions |
 | `--max-turns <n>` | | Max steps the agent may take per request (default 50) |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | How often a request that fails for a passing reason (rate limit, overloaded, server error, dropped connection) is sent again before you see the error: after 1 s, 2 s, 4 s… (default 3, `0` = never). A `⟳ retry 1/3` line shows each attempt. Not done once the answer has started streaming |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | When to summarize a long conversation (default 150000, `0` = never) |
 | `-h` / `-V` | | Help / version |
 

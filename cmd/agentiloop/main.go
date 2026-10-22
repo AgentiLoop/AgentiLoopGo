@@ -34,6 +34,7 @@ type cliArgs struct {
 	yes, continueLast, newSession, tui, noTUI bool
 	noMCP, setup, reset, jsonOut, streamJSON  bool
 	maxTurns                                  *int
+	maxRetries                                int
 	compactAt                                 *uint64
 	prompt                                    []string
 }
@@ -80,6 +81,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.StringVarP(&c.model, "model", "m", "", "`MODEL` id to use. Defaults to the last model used with this provider\n(~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]")
 	fs.BoolVar(&c.yes, "yes", false, "Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]")
 	fs.IntVar(&maxTurns, "max-turns", 0, "Max provider round-trips (`N`) per prompt [default: last used, then 50]")
+	fs.IntVar(&c.maxRetries, "max-retries", core.DefaultMaxRetries, "Retries (`N`) of a provider call that fails transiently (rate limit, overloaded, 5xx,\ndropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES]")
 	fs.Uint64Var(&compactAt, "compact-at", 0, "Summarize the conversation once a request reaches this many input `TOKENS` (0 = never)\n[default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]")
 	fs.StringVarP(&c.cwd, "cwd", "C", "", "Working directory (`DIR`) the agent operates in (defaults to cwd)")
 	fs.StringVarP(&c.resume, "resume", "r", "", "Resume a saved session by `ID` (see /sessions)")
@@ -94,7 +96,7 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 	fs.StringSliceVar(&c.denyTools, "deny-tool", nil, "Never run this tool `NAME`; the model is told it was denied (same name rules). Beats --allow-tool and --yes")
 	fs.StringVar(&c.appendPrompt, "append-system-prompt", "", "Extra `TEXT` added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]")
 	fs.BoolVar(&c.jsonOut, "json", false, "One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,\nprovider, model, usage) instead of streaming text. Tool activity still goes to stderr.")
-	fs.BoolVar(&c.streamJSON, "stream-json", false, "One-shot only: print every event as one JSON object per line on stdout as it happens\n(text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result\nobject as --json with \"type\": \"result\". Nothing else is printed.")
+	fs.BoolVar(&c.streamJSON, "stream-json", false, "One-shot only: print every event as one JSON object per line on stdout as it happens\n(text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result\nobject as --json with \"type\": \"result\". Nothing else is printed.")
 	help := fs.BoolP("help", "h", false, "Print help")
 	ver := fs.BoolP("version", "V", false, "Print version")
 	fs.Usage = func() {}
@@ -128,6 +130,14 @@ func parseArgs(argv []string, stdout io.Writer) (*cliArgs, bool, error) {
 		env("tui", "AGENTILOOP_TUI", func(v string) error { c.tui = truthy(v); return nil }),
 		env("append-system-prompt", "AGENTILOOP_APPEND_SYSTEM_PROMPT", func(v string) error { c.appendPrompt = v; return nil }),
 		env("no-mcp", "AGENTILOOP_NO_MCP", func(v string) error { c.noMCP = truthy(v); return nil }),
+		env("max-retries", "AGENTILOOP_MAX_RETRIES", func(v string) error {
+			n, err := strconv.Atoi(v)
+			if err == nil && n < 0 {
+				err = errors.New("must be 0 or more")
+			}
+			c.maxRetries = n
+			return err
+		}),
 		env("compact-at", "AGENTILOOP_COMPACT_AT", func(v string) error {
 			n, err := strconv.ParseUint(v, 10, 64)
 			compactAt = n
@@ -389,7 +399,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		}
 	}
 	config := core.DefaultAgentConfig()
-	config.Model, config.MaxTurns, config.CompactAtTokens = model, maxTurns, compactAt
+	config.Model, config.MaxTurns, config.CompactAtTokens, config.MaxRetries = model, maxTurns, compactAt, cli.maxRetries
 	instructions := core.LoadInstructions(cwd, agentiloopHome())
 	for _, i := range instructions {
 		note("instructions: " + i.Path)
@@ -1004,7 +1014,18 @@ func render(ev core.Event) {
 		}
 	case core.EvCompacted:
 		fmt.Fprintln(os.Stderr, compactedLine(e.BeforeTokens, e.MessagesDropped))
+	case core.EvRetry:
+		fmt.Fprintln(os.Stderr, retryLine(e.Attempt, e.MaxRetries, e.DelayMs, e.Error))
 	}
+}
+
+// retryLine: e.g. `⟳ retry 1/3 in 1s: Anthropic 529 Service Overloaded (overloaded_error): Overloaded`
+func retryLine(attempt, maxRetries int, delayMs uint64, err string) string {
+	first, _, _ := strings.Cut(err, "\n")
+	if r := []rune(first); len(r) > 160 {
+		first = string(r[:160]) + "…"
+	}
+	return fmt.Sprintf("\u27f3 retry %d/%d in %ds: %s", attempt, maxRetries, delayMs/1000, first)
 }
 
 // tokensPerSec is output tokens per second for one model call. With a
@@ -1140,6 +1161,8 @@ func eventJSON(ev core.Event) string {
 		v = map[string]any{"type": "turn", "input_tokens": e.InputTokens, "output_tokens": e.OutputTokens, "elapsed_ms": e.ElapsedMs, "first_token_ms": e.FirstTokenMs}
 	case core.EvCompacted:
 		v = map[string]any{"type": "compacted", "before_tokens": e.BeforeTokens, "messages_dropped": e.MessagesDropped}
+	case core.EvRetry:
+		v = map[string]any{"type": "retry", "attempt": e.Attempt, "max_retries": e.MaxRetries, "delay_ms": e.DelayMs, "error": e.Error}
 	case core.EvDone:
 		v = map[string]any{"type": "done", "stop_reason": string(e.StopReason)}
 	default:

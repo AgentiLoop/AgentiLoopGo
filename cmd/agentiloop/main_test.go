@@ -398,6 +398,7 @@ func TestStreamJSONLinesHaveATypeAndTheEventFields(t *testing.T) {
 		`{"elapsed_ms":900,"first_token_ms":900,"input_tokens":10,"output_tokens":5,"type":"turn"}`:  core.EvTurnComplete{InputTokens: 10, OutputTokens: 5, ElapsedMs: 900, FirstTokenMs: &ms},
 		`{"before_tokens":100,"messages_dropped":4,"type":"compacted"}`:                              core.EvCompacted{BeforeTokens: 100, MessagesDropped: 4},
 		`{"stop_reason":"end_turn","type":"done"}`:                                                   core.EvDone{StopReason: core.StopEndTurn},
+		`{"attempt":1,"delay_ms":1000,"error":"Anthropic 529","max_retries":3,"type":"retry"}`:       core.EvRetry{Attempt: 1, MaxRetries: 3, DelayMs: 1000, Error: "Anthropic 529"},
 	}
 	for want, ev := range cases {
 		if got := eventJSON(ev); got != want {
@@ -408,5 +409,39 @@ func TestStreamJSONLinesHaveATypeAndTheEventFields(t *testing.T) {
 	v["type"] = "result"
 	if got := core.MarshalString(v, ""); !strings.Contains(got, `"type":"result"`) || !strings.Contains(got, `"result":"a"`) {
 		t.Fatal(got)
+	}
+}
+
+func TestRetryLineKeepsTheFirstLineOfTheError(t *testing.T) {
+	if got := retryLine(2, 3, 2000, "Anthropic 529 Overloaded\ndetail"); got != "\u27f3 retry 2/3 in 2s: Anthropic 529 Overloaded" {
+		t.Fatal(got)
+	}
+	if got := retryLine(1, 3, 1000, strings.Repeat("x", 300)); !strings.HasSuffix(got, "…") {
+		t.Fatal(got)
+	}
+}
+
+func TestMaxRetriesFlagAndEnv(t *testing.T) {
+	var out strings.Builder
+	c, _, err := parseArgs([]string{"hi"}, &out)
+	if err != nil || c.maxRetries != core.DefaultMaxRetries {
+		t.Fatalf("%+v %v", c, err)
+	}
+	c, _, err = parseArgs([]string{"--max-retries", "0", "hi"}, &out)
+	if err != nil || c.maxRetries != 0 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	t.Setenv("AGENTILOOP_MAX_RETRIES", "5")
+	c, _, err = parseArgs([]string{"hi"}, &out)
+	if err != nil || c.maxRetries != 5 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	c, _, err = parseArgs([]string{"--max-retries", "1", "hi"}, &out)
+	if err != nil || c.maxRetries != 1 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	t.Setenv("AGENTILOOP_MAX_RETRIES", "-1")
+	if _, _, err = parseArgs([]string{"hi"}, &out); err == nil {
+		t.Fatal("negative env value must be rejected")
 	}
 }

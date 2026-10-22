@@ -240,6 +240,8 @@ Options:
                                     (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
       --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
       --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
+      --max-retries N               Retries (N) of a provider call that fails transiently (rate limit, overloaded, 5xx,
+                                    dropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES] (default 3)
       --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
                                     [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
   -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
@@ -261,7 +263,7 @@ Options:
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
       --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
-                                    (text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result
+                                    (text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result
                                     object as --json with "type": "result". Nothing else is printed.
   -h, --help                        Print help
   -V, --version                     Print version
@@ -454,6 +456,7 @@ agentiloop --new          # 开始一段新对话（旧对话仍会保存）
 | `--setup` | | 重新运行首次设置向导（提供方、密钥、模型）。加上 `--tui` 可在全屏界面中运行 |
 | `--reset` | | 恢复初始状态：删除 `~/.agentiloop`、shell 配置文件中的 agentiloop 块，以及向导创建的钥匙串项（Windows 上：向导设置的用户环境变量）。手写的 `export` 行只会被注释掉，而且仅在你同意时。加上 `--yes` 可跳过询问 |
 | `--max-turns <n>` | | 智能体每个请求最多可执行的步数（默认 50） |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | 请求因临时原因（速率限制、过载、服务器错误、连接中断）失败时，在显示错误之前重新发送的次数：间隔 1 秒、2 秒、4 秒…（默认 3，`0` = 不重试）。每次尝试都会显示一行 `⟳ retry 1/3`。回答已开始流式输出后不再重试 |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | 何时对长对话进行总结（默认 150000，`0` = 从不） |
 | `-h` / `-V` | | 帮助 / 版本 |
 

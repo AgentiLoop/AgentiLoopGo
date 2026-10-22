@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,6 +26,9 @@ type AgentConfig struct {
 	CompactAtTokens *uint64
 	// Hooks (.agentiloop/hooks.json) run around tool calls and at the end of a run.
 	Hooks Hooks
+	// MaxRetries: how many times a provider call that failed transiently (rate limit,
+	// overloaded, 5xx, dropped connection) is retried before the error is reported. 0 = never.
+	MaxRetries int
 }
 
 func DefaultAgentConfig() AgentConfig {
@@ -32,7 +36,60 @@ func DefaultAgentConfig() AgentConfig {
 		Model:        "claude-sonnet-5",
 		SystemPrompt: DefaultSystemPrompt,
 		MaxTurns:     50,
+		MaxRetries:   DefaultMaxRetries,
 	}
+}
+
+// DefaultMaxRetries is the number of retries of a transiently failing provider call (AgentConfig.MaxRetries).
+const DefaultMaxRetries = 3
+
+// RetryDelay is the wait before retry attempt (1-based): 1 s, 2 s, 4 s, … capped at 30 s.
+func RetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := time.Second << min(attempt-1, 5)
+	return min(d, 30*time.Second)
+}
+
+// transientStatuses are the HTTP statuses worth retrying: timeouts, rate limits,
+// server errors and Anthropic's 529 overloaded.
+var transientStatuses = map[int]bool{408: true, 409: true, 425: true, 429: true, 500: true, 502: true, 503: true, 504: true, 529: true}
+
+var transientNeedles = []string{"overloaded", "rate limit", "rate_limit", "timed out", "timeout", "connection reset", "connection closed",
+	"broken pipe", "error sending request", "incomplete message", "unexpected eof", "error reading", "stream error"}
+
+// IsTransient reports whether a provider error is the kind that goes away by
+// itself: a transient HTTP status in the message (providers format them as
+// `<name> <status> …`), an overloaded / rate-limit message, or a dropped
+// connection or timeout. A refused connection (nothing listening) and a quota
+// that resets in hours are not retried.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "connection refused") || strings.Contains(text, "usage limit") {
+		return false
+	}
+	// The first number in the message is the HTTP status (`Anthropic 529 …`, `codex 429: …`);
+	// later numbers (token counts in a 400's detail) are not.
+	for _, w := range strings.FieldsFunc(text, func(r rune) bool { return r == ' ' || r == '\t' || r == '\n' || r == ':' || r == '(' || r == ')' }) {
+		n, convErr := strconv.Atoi(w)
+		if convErr != nil || n < 100 || n > 599 {
+			continue
+		}
+		if transientStatuses[n] {
+			return true
+		}
+		break
+	}
+	for _, needle := range transientNeedles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 const (
@@ -104,6 +161,14 @@ type EvCompacted struct {
 	MessagesDropped int
 }
 
+// EvRetry: a provider call failed transiently and is about to be repeated after
+// DelayMs (Attempt of MaxRetries).
+type EvRetry struct {
+	Attempt, MaxRetries int
+	DelayMs             uint64
+	Error               string
+}
+
 type EvDone struct{ StopReason StopReason }
 
 func (EvTextDelta) isEvent()    {}
@@ -112,6 +177,7 @@ func (EvToolCall) isEvent()     {}
 func (EvToolResult) isEvent()   {}
 func (EvTurnComplete) isEvent() {}
 func (EvCompacted) isEvent()    {}
+func (EvRetry) isEvent()        {}
 func (EvDone) isEvent()         {}
 
 // Usage is the tokens an agent has spent since it was created (compaction summaries included).
@@ -282,7 +348,7 @@ func (a *Agent) Compact(ctx context.Context) (*EvCompacted, error) {
 	if err := budgetRequest(&req, limits); err != nil {
 		return nil, err
 	}
-	resp, err := a.provider.Complete(ctx, req)
+	resp, err := completeWithRetry(ctx, a.provider, a.config.MaxRetries, req, func(Event) {})
 	if err != nil {
 		return nil, err
 	}
@@ -365,13 +431,15 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 		}
 		started := time.Now()
 		var firstToken *uint64
-		resp, err := a.provider.CompleteStream(ctx, req, func(delta string) {
-			if firstToken == nil {
-				ms := uint64(time.Since(started).Milliseconds())
-				firstToken = &ms
+		resp, err := streamWithRetry(ctx, a.provider, a.config.MaxRetries, req, func(ev Event) {
+			if d, ok := ev.(EvTextDelta); ok {
+				if firstToken == nil {
+					ms := uint64(time.Since(started).Milliseconds())
+					firstToken = &ms
+				}
+				a.pendingText.WriteString(d.Text)
 			}
-			a.pendingText.WriteString(delta)
-			onEvent(EvTextDelta{delta})
+			onEvent(ev)
 		})
 		if err != nil {
 			return err
@@ -466,6 +534,54 @@ func (a *Agent) execute(ctx context.Context, name string, input json.RawMessage)
 		return "", Failed("%s", text)
 	}
 	return text, nil
+}
+
+// streamWithRetry is provider.CompleteStream, repeated up to maxRetries times
+// while it fails transiently before any text arrived (a retry after streamed
+// text would show it twice, so such a failure is reported). Deltas and EvRetry
+// events go to onEvent. A cancelled context is never retried.
+func streamWithRetry(ctx context.Context, provider Provider, maxRetries int, req ProviderRequest, onEvent func(Event)) (ProviderResponse, error) {
+	for attempt := 0; ; {
+		streamed := false
+		resp, err := provider.CompleteStream(ctx, req, func(delta string) {
+			streamed = true
+			onEvent(EvTextDelta{delta})
+		})
+		if err == nil || streamed || attempt >= maxRetries || ctx.Err() != nil || !IsTransient(err) {
+			return resp, err
+		}
+		attempt++
+		if err := waitRetry(ctx, attempt, maxRetries, err, onEvent); err != nil {
+			return ProviderResponse{}, err
+		}
+	}
+}
+
+// completeWithRetry is provider.Complete with the same retry policy as streamWithRetry.
+func completeWithRetry(ctx context.Context, provider Provider, maxRetries int, req ProviderRequest, onEvent func(Event)) (ProviderResponse, error) {
+	for attempt := 0; ; {
+		resp, err := provider.Complete(ctx, req)
+		if err == nil || attempt >= maxRetries || ctx.Err() != nil || !IsTransient(err) {
+			return resp, err
+		}
+		attempt++
+		if err := waitRetry(ctx, attempt, maxRetries, err, onEvent); err != nil {
+			return ProviderResponse{}, err
+		}
+	}
+}
+
+// waitRetry logs and announces retry `attempt`, then sleeps its delay (or returns the context's error).
+func waitRetry(ctx context.Context, attempt, maxRetries int, cause error, onEvent func(Event)) error {
+	delay := RetryDelay(attempt)
+	slog.Warn("provider call failed; retrying", "err", cause, "attempt", attempt, "max_retries", maxRetries, "delay", delay)
+	onEvent(EvRetry{Attempt: attempt, MaxRetries: maxRetries, DelayMs: uint64(delay.Milliseconds()), Error: cause.Error()})
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Transcript is the plain-text rendering of the history for the compaction prompt.

@@ -240,6 +240,8 @@ Options:
                                     (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
       --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
       --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
+      --max-retries N               Retries (N) of a provider call that fails transiently (rate limit, overloaded, 5xx,
+                                    dropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES] (default 3)
       --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
                                     [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
   -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
@@ -261,7 +263,7 @@ Options:
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
       --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
-                                    (text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result
+                                    (text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result
                                     object as --json with "type": "result". Nothing else is printed.
   -h, --help                        Print help
   -V, --version                     Print version
@@ -449,10 +451,11 @@ agentiloop --new          # начать новый разговор (стары
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Не запускать MCP-серверы (см. ниже) |
 | `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Дополнительный текст в конце системного промпта для этого запуска (не сохраняется) |
 | `--json` | | С разовым запросом: выводит ответ одним JSON-объектом (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) в stdout. Работа инструментов остаётся в stderr |
-| `--stream-json` | | С разовым запросом: печатает каждое событие по мере появления как один JSON-объект на строку в stdout (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `done`), затем тот же объект результата, что и `--json`, с `"type": "result"`. Больше ничего не печатается. Для редакторов и скриптов, которым нужен прогресс |
+| `--stream-json` | | С разовым запросом: печатает каждое событие по мере появления как один JSON-объект на строку в stdout (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), затем тот же объект результата, что и `--json`, с `"type": "result"`. Больше ничего не печатается. Для редакторов и скриптов, которым нужен прогресс |
 | `--setup` | | Снова запустить мастер первоначальной настройки (провайдер, ключ, модель). Вместе с `--tui` он запускается внутри полноэкранного интерфейса |
 | `--reset` | | Как с нуля: удаляет `~/.agentiloop`, блок agentiloop в профиле оболочки и записи Связки ключей, созданные мастером (в Windows — заданные им пользовательские переменные окружения). Написанные вручную строки `export` только комментируются, и только с вашего согласия. Добавьте `--yes`, чтобы пропустить вопросы |
 | `--max-turns <n>` | | Максимальное число шагов агента на один запрос (по умолчанию 50) |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Сколько раз запрос, упавший по временной причине (лимит запросов, перегрузка, ошибка сервера, оборванное соединение), отправляется заново, прежде чем вы увидите ошибку: через 1 с, 2 с, 4 с… (по умолчанию 3, `0` = никогда). Строка `⟳ retry 1/3` показывает каждую попытку. Не повторяется, если ответ уже начал приходить |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | Когда сжимать длинный разговор в краткое изложение (по умолчанию 150000, `0` = никогда) |
 | `-h` / `-V` | | Справка / версия |
 

@@ -412,6 +412,8 @@ func (a *App) applyEvent(ev core.Event) {
 		a.activity = "Running " + e.Name
 	case core.EvCompacted:
 		a.activity = "Compacting"
+	case core.EvRetry:
+		a.activity = fmt.Sprintf("Retrying %d/%d", e.Attempt, e.MaxRetries)
 	default:
 		a.activity = "Thinking"
 	}
@@ -470,6 +472,8 @@ func (a *App) applyEvent(ev core.Event) {
 		a.speed = speedLine(e.OutputTokens, e.ElapsedMs, e.FirstTokenMs)
 	case core.EvCompacted:
 		a.push(kindInfo, compactedLine(e.BeforeTokens, e.MessagesDropped))
+	case core.EvRetry:
+		a.push(kindInfo, retryLine(e.Attempt, e.MaxRetries, e.DelayMs, e.Error))
 	}
 }
 

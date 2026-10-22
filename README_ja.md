@@ -240,6 +240,8 @@ Options:
                                     (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
       --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
       --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
+      --max-retries N               Retries (N) of a provider call that fails transiently (rate limit, overloaded, 5xx,
+                                    dropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES] (default 3)
       --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
                                     [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
   -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
@@ -261,7 +263,7 @@ Options:
       --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
                                     provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
       --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
-                                    (text_delta, text, tool_call, tool_result, turn, compacted, done), then the same result
+                                    (text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result
                                     object as --json with "type": "result". Nothing else is printed.
   -h, --help                        Print help
   -V, --version                     Print version
@@ -454,6 +456,7 @@ agentiloop --new          # 新しい会話を開始 (以前の会話は保存�
 | `--setup` | | 初回セットアップウィザードを再実行します (プロバイダー、キー、モデル)。`--tui` と組み合わせるとフルスクリーン画面の中で実行されます |
 | `--reset` | | 初期状態に戻します: `~/.agentiloop`、シェルプロファイル内の agentiloop ブロック、ウィザードが作成したキーチェーン項目（Windows では、ウィザードが設定したユーザー環境変数）を削除します。手書きの `export` 行はコメントアウトされるだけで、しかも同意した場合のみです。`--yes` を付けると確認を省略します |
 | `--max-turns <n>` | | 1 回のリクエストでエージェントが実行できる最大ステップ数 (デフォルト 50) |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | 一時的な理由 (レート制限、過負荷、サーバーエラー、切断) で失敗したリクエストを、エラーを表示する前に再送する回数。1 秒、2 秒、4 秒… と待って再送します (デフォルト 3、`0` = 再送しない)。各試行は `⟳ retry 1/3` の行で表示されます。回答のストリーミングが始まった後は再送しません |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | 長い会話を要約するタイミング (デフォルト 150000、`0` = しない) |
 | `-h` / `-V` | | ヘルプ / バージョン |
 
