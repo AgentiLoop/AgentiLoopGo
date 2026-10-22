@@ -435,6 +435,11 @@ func budgetRequest(req *ProviderRequest, limits ModelLimits) error {
 
 // Run is the core agentic loop: send → if tool_use, execute tools, append results, repeat.
 func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) error {
+	return a.RunContent(ctx, []ContentBlock{TextBlock(userInput)}, onEvent)
+}
+
+// RunContent is Run with a prepared user turn — the prompt text plus any pasted or @mentioned images.
+func (a *Agent) RunContent(ctx context.Context, content []ContentBlock, onEvent func(Event)) error {
 	a.pendingText.Reset()
 	// A cancelled run (Esc) keeps the session: finish the history so it stays usable.
 	defer func() {
@@ -452,7 +457,7 @@ func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) 
 			onEvent(*ev)
 		}
 	}
-	a.History = append(a.History, UserText(userInput))
+	a.History = append(a.History, User(content))
 
 	for range a.config.MaxTurns {
 		system := a.config.SystemPrompt
@@ -688,6 +693,8 @@ func Transcript(history []Message) string {
 					body = fmt.Sprintf("%s…[%d more bytes]", body[:cut], len(b.Content)-cut)
 				}
 				fmt.Fprintf(&sb, "%s: %s\n", tag, body)
+			case BlockImage:
+				fmt.Fprintf(&sb, "%s: [image %s]\n", role, b.MediaType)
 			}
 		}
 	}

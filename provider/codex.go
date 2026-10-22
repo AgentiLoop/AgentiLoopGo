@@ -315,6 +315,10 @@ func codexInput(history []core.Message) []any {
 				out = append(out, map[string]any{"type": "function_call", "call_id": b.ID, "name": b.Name, "arguments": compactJSON(b.Input)})
 			case core.BlockToolResult:
 				out = append(out, map[string]any{"type": "function_call_output", "call_id": b.ToolUseID, "output": b.Content})
+			case core.BlockImage:
+				out = append(out, map[string]any{"type": "message", "role": role, "content": []any{
+					map[string]any{"type": "input_image", "image_url": "data:" + b.MediaType + ";base64," + b.Data},
+				}})
 			}
 		}
 	}

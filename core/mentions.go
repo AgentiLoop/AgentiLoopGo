@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,14 +11,17 @@ import (
 
 // @path mentions: a word starting with "@" in a prompt that names an existing file or folder
 // (relative to the project folder, or absolute) attaches it to the prompt the model receives —
-// the file's text with line numbers, or the folder's entries. The typed text is kept as is;
-// the attachments follow it. Words that name nothing (@alice, an e-mail address) are left alone.
+// the file's text with line numbers, the folder's entries, or an image (png/jpeg/gif/webp) as an
+// image block. The typed text is kept as is; the attachments follow it. Words that name nothing
+// (@alice, an e-mail address) are left alone.
 
 const (
 	// MentionFileLimit: files longer than this are cut (bytes).
 	MentionFileLimit = 64 * 1024
 	// MentionDirLimit: folders list at most this many entries.
 	MentionDirLimit = 200
+	// MentionImageLimit: images larger than this (bytes) are not attached (the Anthropic API limit).
+	MentionImageLimit = 5 * 1024 * 1024
 )
 
 // Attachment is one attached path, for the UI.
@@ -25,9 +29,27 @@ type Attachment struct {
 	// Mention as typed, without the "@".
 	Mention string
 	Path    string
-	// Lines of a file, entries of a folder.
+	// Lines of a file, entries of a folder, bytes of an image.
 	Lines int
 	IsDir bool
+	// MediaType and Data are set for an image: it goes to the model as an image block, not as text.
+	MediaType string
+	Data      string
+}
+
+// ImageMediaType is the media type of an image file, by extension ("" for anything else).
+func ImageMediaType(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
 }
 
 const mentionLead = "([{\"'<"
@@ -104,7 +126,16 @@ func ExpandMentions(text, cwd string) (string, []Attachment) {
 				body += fmt.Sprintf("\n… %d more entries", total-MentionDirLimit)
 			}
 			fmt.Fprintf(&sb, "\n\n<folder path=\"%s\">\n%s\n</folder>", mention, body)
-			attached = append(attached, Attachment{mention, path, total, true})
+			attached = append(attached, Attachment{Mention: mention, Path: path, Lines: total, IsDir: true})
+		} else if mt := ImageMediaType(path); mt != "" && meta.Mode().IsRegular() {
+			if meta.Size() > MentionImageLimit {
+				continue
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			attached = append(attached, Attachment{Mention: mention, Path: path, Lines: len(data), MediaType: mt, Data: base64.StdEncoding.EncodeToString(data)})
 		} else if meta.Mode().IsRegular() {
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -129,16 +160,30 @@ func ExpandMentions(text, cwd string) (string, []Attachment) {
 				fmt.Fprintf(&body, "… cut at %d bytes (%d bytes in all)\n", MentionFileLimit, meta.Size())
 			}
 			fmt.Fprintf(&sb, "\n\n<file path=\"%s\">\n%s</file>", mention, body.String())
-			attached = append(attached, Attachment{mention, path, lines, false})
+			attached = append(attached, Attachment{Mention: mention, Path: path, Lines: lines})
 		}
 	}
 	return sb.String(), attached
+}
+
+// MentionContent is the user turn for the model: the expanded text, then one image block per attached image.
+func MentionContent(text string, attached []Attachment) []ContentBlock {
+	blocks := []ContentBlock{TextBlock(text)}
+	for _, a := range attached {
+		if a.MediaType != "" {
+			blocks = append(blocks, ImageBlock(a.MediaType, a.Data))
+		}
+	}
+	return blocks
 }
 
 // DescribeAttachment is one line for the UI: "📎 src/main.rs (120 lines)".
 func DescribeAttachment(a Attachment) string {
 	if a.IsDir {
 		return fmt.Sprintf("📎 %s/ (%d entries)", strings.TrimRight(a.Mention, "/"), a.Lines)
+	}
+	if a.MediaType != "" {
+		return fmt.Sprintf("📎 %s (%s, %d KB)", a.Mention, a.MediaType, (a.Lines+1023)/1024)
 	}
 	return fmt.Sprintf("📎 %s (%d lines)", a.Mention, a.Lines)
 }

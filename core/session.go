@@ -236,6 +236,8 @@ func (s *Session) ToMarkdown() string {
 					label = "Error"
 				}
 				fmt.Fprintf(&out, "\n**%s**\n\n%s\n", label, fenced("", body))
+			case BlockImage:
+				fmt.Fprintf(&out, "\n*[image %s]*\n", b.MediaType)
 			}
 		}
 	}

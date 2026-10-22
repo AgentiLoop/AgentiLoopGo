@@ -20,6 +20,7 @@ const (
 	BlockText       = "text"
 	BlockToolUse    = "tool_use"
 	BlockToolResult = "tool_result"
+	BlockImage      = "image"
 )
 
 // ContentBlock is one piece of a message: text, a tool call, or a tool result.
@@ -36,6 +37,9 @@ type ContentBlock struct {
 	ToolUseID string
 	Content   string
 	IsError   bool
+	// image: a pasted or @mentioned picture, Data is base64 of the file bytes
+	MediaType string
+	Data      string
 }
 
 func TextBlock(text string) ContentBlock { return ContentBlock{Type: BlockText, Text: text} }
@@ -46,6 +50,17 @@ func ToolUseBlock(id, name string, input json.RawMessage) ContentBlock {
 
 func ToolResultBlock(toolUseID, content string, isError bool) ContentBlock {
 	return ContentBlock{Type: BlockToolResult, ToolUseID: toolUseID, Content: content, IsError: isError}
+}
+
+func ImageBlock(mediaType, data string) ContentBlock {
+	return ContentBlock{Type: BlockImage, MediaType: mediaType, Data: data}
+}
+
+// imageSource is the Anthropic wire shape of an image block's `source`.
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 // marshalNoEscape encodes v like serde_json: <, > and & are not HTML-escaped.
@@ -59,8 +74,9 @@ func marshalNoEscape(v any) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
-// MarshalJSON emits `{"type":"text","text":…}`, `{"type":"tool_use",…}` or
-// `{"type":"tool_result",…}` — the same shape the Rust version stores in sessions.
+// MarshalJSON emits `{"type":"text","text":…}`, `{"type":"tool_use",…}`,
+// `{"type":"tool_result",…}` or `{"type":"image","source":{"type":"base64",…}}` —
+// the same shape the Rust version stores in sessions.
 func (b ContentBlock) MarshalJSON() ([]byte, error) {
 	switch b.Type {
 	case BlockText:
@@ -86,6 +102,11 @@ func (b ContentBlock) MarshalJSON() ([]byte, error) {
 			Content   string `json:"content"`
 			IsError   bool   `json:"is_error,omitempty"`
 		}{b.Type, b.ToolUseID, b.Content, b.IsError})
+	case BlockImage:
+		return marshalNoEscape(struct {
+			Type   string      `json:"type"`
+			Source imageSource `json:"source"`
+		}{b.Type, imageSource{"base64", b.MediaType, b.Data}})
 	}
 	return nil, fmt.Errorf("unknown content block type %q", b.Type)
 }
@@ -100,16 +121,17 @@ func (b *ContentBlock) UnmarshalJSON(data []byte) error {
 		ToolUseID string          `json:"tool_use_id"`
 		Content   string          `json:"content"`
 		IsError   bool            `json:"is_error"`
+		Source    imageSource     `json:"source"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 	switch raw.Type {
-	case BlockText, BlockToolUse, BlockToolResult:
+	case BlockText, BlockToolUse, BlockToolResult, BlockImage:
 	default:
 		return fmt.Errorf("unknown content block type %q", raw.Type)
 	}
-	*b = ContentBlock{raw.Type, raw.Text, raw.ID, raw.Name, raw.Input, raw.ToolUseID, raw.Content, raw.IsError}
+	*b = ContentBlock{raw.Type, raw.Text, raw.ID, raw.Name, raw.Input, raw.ToolUseID, raw.Content, raw.IsError, raw.Source.MediaType, raw.Source.Data}
 	return nil
 }
 
@@ -120,6 +142,11 @@ type Message struct {
 
 func UserText(text string) Message {
 	return Message{Role: RoleUser, Content: []ContentBlock{TextBlock(text)}}
+}
+
+// User is a user turn with prepared content (the prompt text plus any images).
+func User(content []ContentBlock) Message {
+	return Message{Role: RoleUser, Content: content}
 }
 
 func ToolResults(results []ContentBlock) Message {

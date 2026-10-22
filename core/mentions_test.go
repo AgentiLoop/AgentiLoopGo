@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -61,5 +62,38 @@ func TestExpandMentionsCutsBigFiles(t *testing.T) {
 	out, att := ExpandMentions("@big.txt", d)
 	if !strings.Contains(out, "… cut at 65536 bytes") || att[0].Lines >= 10_000 {
 		t.Fatal(out[len(out)-200:], att)
+	}
+}
+
+func TestImagesBecomeImageBlocksNotText(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "shot.PNG"), []byte("\x89PNG\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, att := ExpandMentions("what is in @shot.PNG?", d)
+	if out != "what is in @shot.PNG?" {
+		t.Fatalf("text changed: %q", out)
+	}
+	if len(att) != 1 || att[0].MediaType != "image/png" || att[0].Data != "iVBORw0K" || att[0].Lines != 6 {
+		t.Fatalf("attachment: %+v", att)
+	}
+	if got := DescribeAttachment(att[0]); got != "📎 shot.PNG (image/png, 1 KB)" {
+		t.Fatalf("describe: %q", got)
+	}
+	blocks := MentionContent(out, att)
+	if len(blocks) != 2 || blocks[0].Type != BlockText || blocks[0].Text != out {
+		t.Fatalf("blocks: %+v", blocks)
+	}
+	b, err := json.Marshal(blocks[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0K"}}`
+	if string(b) != want {
+		t.Fatalf("wire: %s", b)
+	}
+	var back ContentBlock
+	if err := json.Unmarshal(b, &back); err != nil || back.Type != BlockImage || back.MediaType != "image/png" || back.Data != "iVBORw0K" {
+		t.Fatalf("round trip: %+v %v", back, err)
 	}
 }

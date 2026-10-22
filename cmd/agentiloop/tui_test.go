@@ -485,3 +485,23 @@ func TestInputEditingKeys(t *testing.T) {
 		t.Fatal(a.input)
 	}
 }
+
+func TestCtrlVAndAltVAskForAnImagePasteAndTheMentionLandsAtTheCursor(t *testing.T) {
+	a := NewApp("s")
+	typeStr(a, "look: ")
+	if _, ok := a.HandleKey(key(tcell.KeyCtrlV)).(actPasteImage); !ok {
+		t.Fatal("Ctrl-V should ask for an image paste")
+	}
+	if _, ok := a.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'v', tcell.ModAlt)).(actPasteImage); !ok {
+		t.Fatal("Alt-V should ask for an image paste")
+	}
+	a.InsertText("@/tmp/agentiloop/paste-1.png ")
+	typeStr(a, "ok")
+	if a.input != "look: @/tmp/agentiloop/paste-1.png ok" {
+		t.Fatalf("input: %q", a.input)
+	}
+	// A plain v still types.
+	if act := a.HandleKey(tcell.NewEventKey(tcell.KeyRune, 'v', tcell.ModNone)); act != nil || a.input != "look: @/tmp/agentiloop/paste-1.png okv" {
+		t.Fatalf("plain v: %v %q", act, a.input)
+	}
+}

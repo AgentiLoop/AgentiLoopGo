@@ -281,7 +281,7 @@ func run() error {
 			for _, a := range attached {
 				fmt.Fprintln(os.Stderr, core.DescribeAttachment(a))
 			}
-			err = st.agent.Run(ctx, prompt, onEvent)
+			err = st.agent.RunContent(ctx, core.MentionContent(prompt, attached), onEvent)
 		}
 		st.persist()
 		if cli.jsonOut || cli.streamJSON {
@@ -542,7 +542,7 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			for _, a := range attached {
 				q.Send(uiLine{core.DescribeAttachment(a)})
 			}
-			if cancelled, err := runCancellable(ctx, st.agent, line, onEvent, cancel); cancelled {
+			if cancelled, err := runCancellable(ctx, st.agent, core.MentionContent(line, attached), onEvent, cancel); cancelled {
 				q.Send(uiLine{"Cancelled. Session kept; send your next prompt."})
 			} else if err != nil {
 				q.Send(uiError{err.Error()})
@@ -558,7 +558,7 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 // runCancellable runs one prompt until it finishes or a signal arrives on cancel
 // (Esc in the TUI). Cancelling stops the provider call and any running tool; the
 // agent keeps its history, so the session continues with the next prompt.
-func runCancellable(ctx context.Context, agent *core.Agent, line string, onEvent func(core.Event), cancel <-chan struct{}) (bool, error) {
+func runCancellable(ctx context.Context, agent *core.Agent, content []core.ContentBlock, onEvent func(core.Event), cancel <-chan struct{}) (bool, error) {
 	// Drop an Esc that arrived after the previous run had already finished.
 	select {
 	case <-cancel:
@@ -576,7 +576,7 @@ func runCancellable(ctx context.Context, agent *core.Agent, line string, onEvent
 		}
 	}()
 	tools.BeginUndoTurn()
-	err := agent.Run(runCtx, line, onEvent)
+	err := agent.RunContent(runCtx, content, onEvent)
 	return err != nil && runCtx.Err() != nil && ctx.Err() == nil, err
 }
 
@@ -663,7 +663,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		for _, a := range attached {
 			fmt.Fprintln(os.Stderr, core.DescribeAttachment(a))
 		}
-		err = st.agent.Run(runCtx, line, renderLine)
+		err = st.agent.RunContent(runCtx, core.MentionContent(line, attached), renderLine)
 		cancelled := runCtx.Err() != nil && ctx.Err() == nil
 		stop()
 		stopSig()
@@ -702,6 +702,7 @@ func replay(history []core.Message, user func(string), event func(core.Event)) {
 				event(core.EvToolCall{ID: b.ID, Name: b.Name, Input: b.Input})
 			case core.BlockToolResult:
 				event(core.EvToolResult{ID: b.ToolUseID, Name: names[b.ToolUseID], Output: b.Content, IsError: b.IsError})
+				// An image: the prompt text keeps the @path mention; the pixels aren't shown.
 			}
 		}
 	}

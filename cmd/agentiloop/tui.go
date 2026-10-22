@@ -9,10 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -225,13 +228,16 @@ type (
 	actOpenURL struct{ URL string }
 	// actCopy: a mouse drag ended; copy the selection from the screen.
 	actCopy struct{}
+	// actPasteImage: Ctrl-V / Alt-V; attach the image on the clipboard to the prompt.
+	actPasteImage struct{}
 )
 
-func (actSubmit) isAction()  {}
-func (actQuit) isAction()    {}
-func (actCancel) isAction()  {}
-func (actOpenURL) isAction() {}
-func (actCopy) isAction()    {}
+func (actSubmit) isAction()     {}
+func (actQuit) isAction()       {}
+func (actCancel) isAction()     {}
+func (actOpenURL) isAction()    {}
+func (actCopy) isAction()       {}
+func (actPasteImage) isAction() {}
 
 // area is a pane of the last frame a drag may select within.
 type area struct{ x, y, w, h int }
@@ -534,6 +540,10 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 		a.showFiles = !a.showFiles
 	case tcell.KeyCtrlU:
 		a.input, a.cursor = "", 0
+	// Cmd-V never reaches a terminal program (the terminal pastes text itself), so the
+	// image key is Ctrl-V, like Claude Code — and Alt-V for terminals that take Ctrl-V.
+	case tcell.KeyCtrlV:
+		return actPasteImage{}
 	case tcell.KeyEnter:
 		line := strings.TrimSpace(a.input)
 		if a.busy || (line == "" && !a.asking) {
@@ -576,9 +586,10 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 		}
 		return actSubmit{line}
 	case tcell.KeyRune:
-		r := string(ev.Rune())
-		a.input = a.input[:a.cursor] + r + a.input[a.cursor:]
-		a.cursor += len(r)
+		if ev.Modifiers()&tcell.ModAlt != 0 && (ev.Rune() == 'v' || ev.Rune() == 'V') {
+			return actPasteImage{}
+		}
+		a.InsertText(string(ev.Rune()))
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if a.cursor > 0 {
 			_, n := utf8.DecodeLastRuneInString(a.input[:a.cursor])
@@ -614,6 +625,12 @@ func (a *App) HandleKey(ev *tcell.EventKey) Action {
 		a.scroll = max(a.scroll-10, 0)
 	}
 	return nil
+}
+
+// InsertText inserts text at the cursor (typed runes, a pasted image's @path mention).
+func (a *App) InsertText(text string) {
+	a.input = a.input[:a.cursor] + text + a.input[a.cursor:]
+	a.cursor += len(text)
 }
 
 // recall steps up/down through earlier prompts, like the REPL.
@@ -1231,6 +1248,12 @@ func runTUI(app *App, q *uiQueue, submit chan<- string, cancel chan<- struct{}) 
 				} else {
 					app.Apply(uiLine{"↗ " + a.URL})
 				}
+			case actPasteImage:
+				if path, err := pasteImage(); err != nil {
+					app.Apply(uiError{fmt.Sprintf("could not paste an image: %v", err)})
+				} else {
+					app.InsertText("@" + path + " ")
+				}
 			}
 		case <-q.wake:
 		case <-tick.C:
@@ -1256,6 +1279,54 @@ func copyToClipboard(s tcell.Screen, text string) error {
 	}
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
+}
+
+// pasteCount: pasted images so far, for unique file names.
+var pasteCount atomic.Int64
+
+var errNoImage = fmt.Errorf("no image on the clipboard")
+
+// pasteImage saves the image on the clipboard as a PNG under the temp folder and
+// returns its path (a copied image *file* is used as is). macOS: osascript;
+// Linux: wl-paste / xclip; Windows: PowerShell.
+func pasteImage() (string, error) {
+	dir := filepath.Join(os.TempDir(), "agentiloop")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, fmt.Sprintf("paste-%d-%d.png", os.Getpid(), pasteCount.Add(1)))
+	ok := false
+	switch runtime.GOOS {
+	case "darwin":
+		// A file copied in the Finder: use it directly when it is an image.
+		if out, err := exec.Command("osascript", "-e", "POSIX path of (the clipboard as «class furl»)").Output(); err == nil {
+			p := strings.TrimSpace(string(out))
+			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && core.ImageMediaType(p) != "" {
+				return p, nil
+			}
+		}
+		script := "set f to open for access POSIX file \"" + path + "\" with write permission\ntry\n\tset eof f to 0\n\twrite (the clipboard as «class PNGf») to f\n\tclose access f\non error e\n\tclose access f\n\terror e\nend try\n"
+		cmd := exec.Command("osascript", "-")
+		cmd.Stdin = strings.NewReader(script)
+		ok = cmd.Run() == nil
+	case "windows":
+		script := "$i = Get-Clipboard -Format Image; if ($i -eq $null) { exit 1 }; $i.Save('" + path + "')"
+		ok = exec.Command("powershell", "-NoProfile", "-Command", script).Run() == nil
+	default:
+		var out []byte
+		var err error
+		if os.Getenv("WAYLAND_DISPLAY") != "" {
+			out, err = exec.Command("wl-paste", "-t", "image/png").Output()
+		} else {
+			out, err = exec.Command("xclip", "-selection", "clipboard", "-t", "image/png", "-o").Output()
+		}
+		ok = err == nil && len(out) > 0 && os.WriteFile(path, out, 0o644) == nil
+	}
+	if st, err := os.Stat(path); !ok || err != nil || st.Size() == 0 {
+		os.Remove(path)
+		return "", errNoImage
+	}
+	return path, nil
 }
 
 // openURL opens url with the platform's default handler.

@@ -118,10 +118,11 @@ type wireToolCall struct {
 	Function wireToolCallFn `json:"function"`
 }
 
-// wireMessage: `content` is always present (null for tool-call-only assistant turns).
+// wireMessage: `content` is always present (null for tool-call-only assistant turns);
+// a user turn with images sends `text` / `image_url` parts instead of a string.
 type wireMessage struct {
 	Role       string         `json:"role"`
-	Content    *string        `json:"content"`
+	Content    any            `json:"content"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 }
@@ -137,13 +138,27 @@ func toWireMessages(system string, history []core.Message) []wireMessage {
 	}
 	for _, m := range history {
 		if m.Role == core.RoleUser {
+			hasImage := false
+			for _, b := range m.Content {
+				hasImage = hasImage || b.Type == core.BlockImage
+			}
+			var parts []any
 			for _, b := range m.Content {
 				switch b.Type {
 				case core.BlockText:
-					out = append(out, wireMessage{Role: "user", Content: str(b.Text)})
+					if hasImage {
+						parts = append(parts, map[string]any{"type": "text", "text": b.Text})
+					} else {
+						out = append(out, wireMessage{Role: "user", Content: str(b.Text)})
+					}
+				case core.BlockImage:
+					parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + b.MediaType + ";base64," + b.Data}})
 				case core.BlockToolResult:
 					out = append(out, wireMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: str(b.Content)})
 				}
+			}
+			if len(parts) > 0 {
+				out = append(out, wireMessage{Role: "user", Content: parts})
 			}
 			continue
 		}
