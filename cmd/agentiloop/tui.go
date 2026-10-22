@@ -837,10 +837,11 @@ func (a *App) Draw(s tcell.Screen) {
 	fill(s, 0, iy, w, 1, rule)
 	fill(s, 0, iy+3, w, 1, rule)
 	drawLine(s, 0, iy, w, title)
-	// Keep the whole top rule dim gray, including under any title text.
+	// Underline the title cells too so the rule runs through them. (Plain underline only:
+	// Terminal.app ignores tcell's SGR 58 colored-underline escape and renders it white.)
 	for col := 0; col < w; col++ {
 		m, c, st, _ := s.GetContent(col, iy)
-		s.SetContent(col, iy, m, c, st.Underline(true, tcell.ColorDarkGray))
+		s.SetContent(col, iy, m, c, st.Underline(true))
 	}
 	s.SetContent(0, iy+1, '>', nil, fg(orange))
 	const gutter = 2
