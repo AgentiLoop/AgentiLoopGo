@@ -836,7 +836,7 @@ func (a *App) Draw(s tcell.Screen) {
 	rule := fg(tcell.ColorDarkGray).Underline(true)
 	fill(s, 0, iy, w, 1, rule)
 	fill(s, 0, iy+3, w, 1, rule)
-	drawLine(s, 1, iy, max(w-2, 0), title)
+	drawLine(s, 0, iy, w, title)
 	for col := 0; col < w; col++ {
 		m, c, st, _ := s.GetContent(col, iy)
 		s.SetContent(col, iy, m, c, st.Underline(true))
