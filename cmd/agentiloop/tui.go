@@ -831,12 +831,16 @@ func (a *App) Draw(s tcell.Screen) {
 		title = Line{raw(" setup ")}
 	}
 	orange := tcell.NewRGBColor(0xE0, 0x8A, 0x5B)
-	rule := fg(tcell.ColorDarkGray)
-	for col := 0; col < w; col++ {
-		s.SetContent(col, iy, '─', nil, rule)
-		s.SetContent(col, iy+3, '─', nil, rule)
-	}
+	// Rules are rows of underlined spaces: the terminal draws underline as one continuous
+	// stroke, unlike '─' glyphs which can render jagged/gapped depending on the font.
+	rule := fg(tcell.ColorDarkGray).Underline(true)
+	fill(s, 0, iy, w, 1, rule)
+	fill(s, 0, iy+3, w, 1, rule)
 	drawLine(s, 1, iy, max(w-2, 0), title)
+	for col := 0; col < w; col++ {
+		m, c, st, _ := s.GetContent(col, iy)
+		s.SetContent(col, iy, m, c, st.Underline(true))
+	}
 	s.SetContent(0, iy+1, '>', nil, fg(orange))
 	const gutter = 2
 	inner := max(w-gutter, 1)
