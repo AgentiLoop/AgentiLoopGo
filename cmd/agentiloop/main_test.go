@@ -14,6 +14,7 @@ import (
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
 	"github.com/AgentiLoop/AgentiLoopGo/mcp"
+	"github.com/AgentiLoop/AgentiLoopGo/tools"
 	"github.com/peterh/liner"
 )
 
@@ -478,4 +479,15 @@ func TestStatusListsEveryItemAndAdaptsToWhatIsKnown(t *testing.T) {
 		"tools:         2: read_file, bash  (1 of them from 1 MCP server(s))", "hooks:         2 (/hooks lists them)", "instructions:  /p/AGENTS.md")
 	info.limits = &core.ModelLimits{MaxTokens: 8192}
 	has(statusText(info), "model:         m  (max output 8192 tokens, compaction off)")
+}
+
+func TestRewindListingNumbersPromptsAndCountsChangedFiles(t *testing.T) {
+	if got, want := promptTitle("  "+strings.Repeat("x", 70)+"\nmore"), strings.Repeat("x", 59)+"…"; got != want {
+		t.Fatalf("promptTitle = %q, want %q", got, want)
+	}
+	got := rewindListing([]tools.RewindPrompt{{Text: "fix the bug\nin main", Files: 2}, {Text: "what is this?"}, {Text: "add a test", Files: 1}})
+	want := "/rewind <n> goes back to before prompt n: its file changes and everything after it are undone\n  1. fix the bug  (2 files changed)\n  2. what is this?\n  3. add a test  (1 file changed)"
+	if got != want {
+		t.Fatalf("rewindListing =\n%s\nwant\n%s", got, want)
+	}
 }

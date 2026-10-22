@@ -514,8 +514,8 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			var out []string
 			before := st.session.ID
 			err := st.slashCommand(ctx, line, func(s string) { out = append(out, s) })
-			// /resume and /clear switch sessions: show the new one's conversation.
-			if st.session.ID != before {
+			// /resume and /clear switch sessions, /rewind cuts this one: show the conversation now.
+			if st.session.ID != before || strings.HasPrefix(line, "/rewind ") {
 				tracker = newDiffTracker(cwd)
 				q.Send(uiClear{})
 				replayTUI(q, st.agent.History)
@@ -538,6 +538,7 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 					q.Send(uiDiff{*change})
 				}
 			}
+			tools.BeginUndoPrompt(st.agent.Epoch(), len(st.agent.History), line)
 			line, attached := core.ExpandMentions(line, cwd)
 			for _, a := range attached {
 				q.Send(uiLine{core.DescribeAttachment(a)})
@@ -575,7 +576,6 @@ func runCancellable(ctx context.Context, agent *core.Agent, content []core.Conte
 		case <-done:
 		}
 	}()
-	tools.BeginUndoTurn()
 	err := agent.RunContent(runCtx, content, onEvent)
 	return err != nil && runCtx.Err() != nil && ctx.Err() == nil, err
 }
@@ -658,7 +658,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		if p, ok := innerPolicy(st.agent.Policy()).(*interactivePolicy); ok {
 			p.cancel = stop
 		}
-		tools.BeginUndoTurn()
+		tools.BeginUndoPrompt(st.agent.Epoch(), len(st.agent.History), line)
 		line, attached := core.ExpandMentions(line, cwd)
 		for _, a := range attached {
 			fmt.Fprintln(os.Stderr, core.DescribeAttachment(a))
@@ -832,6 +832,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
+	"/rewind [n]     list your prompts, or go back to before prompt #n (its file changes and everything after it are undone)\n" +
 	"/compact        summarize the conversation to free context\n" +
 	"/sessions       list saved sessions (newest first)\n" +
 	"/resume <id|n>  load a saved session into this REPL\n" +
@@ -997,6 +998,35 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(l)
 		}
 		say("undid the file changes from the last prompt (shell commands are not undone)")
+	case "/rewind":
+		prompts := tools.RewindPrompts(agent.Epoch())
+		if len(prompts) == 0 {
+			say("nothing to rewind (prompts sent since the session was opened, cleared or compacted can be rewound)")
+			return nil
+		}
+		if arg == "" {
+			say(rewindListing(prompts))
+			return nil
+		}
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > len(prompts) {
+			say(fmt.Sprintf("usage: /rewind <1-%d>  (/rewind lists the prompts)", len(prompts)))
+			return nil
+		}
+		p := prompts[n-1]
+		for _, l := range tools.Rewind(agent.Epoch(), p.Index) {
+			say(l)
+		}
+		dropped := max(len(agent.History)-p.Index, 0)
+		agent.History = agent.History[:min(p.Index, len(agent.History))]
+		// Saved even when nothing is left, so /resume can't bring the dropped messages back.
+		st.session.History = append([]core.Message{}, agent.History...) // [] not null, like Rust
+		if st.sessionsDir != "" {
+			if _, err := st.session.Save(st.sessionsDir); err != nil {
+				say(fmt.Sprintf("warning: could not save session: %v", err))
+			}
+		}
+		say(fmt.Sprintf("rewound to before prompt %d \"%s\": %d message(s) dropped (shell commands are not undone)", n, promptTitle(p.Text), dropped))
 	case "/compact":
 		ev, err := agent.Compact(ctx)
 		switch {
@@ -1160,6 +1190,31 @@ func statusText(s statusInfo) string {
 		fmt.Sprintf("settings:      max turns %d, retries %d", s.maxTurns, s.maxRetries),
 		"usage:         " + usageLine(s.usage),
 	}, "\n")
+}
+
+// promptTitle shortens a prompt to its first line, at most 60 characters.
+func promptTitle(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if r := []rune(line); len(r) > 60 {
+		return string(r[:59]) + "…"
+	}
+	return line
+}
+
+// rewindListing is what /rewind without a number shows: the prompts it can go back to, oldest first.
+func rewindListing(prompts []tools.RewindPrompt) string {
+	out := []string{"/rewind <n> goes back to before prompt n: its file changes and everything after it are undone"}
+	for i, p := range prompts {
+		files := ""
+		switch {
+		case p.Files == 1:
+			files = "  (1 file changed)"
+		case p.Files > 1:
+			files = fmt.Sprintf("  (%d files changed)", p.Files)
+		}
+		out = append(out, fmt.Sprintf("%3d. %s%s", i+1, promptTitle(p.Text), files))
+	}
+	return strings.Join(out, "\n")
 }
 
 // planLine is what /plan and --plan print.

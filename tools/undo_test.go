@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,5 +112,59 @@ func TestFileToolsAreUndoablePerTurn(t *testing.T) {
 	}
 	if UndoLast() != nil {
 		t.Fatal("nothing left")
+	}
+}
+
+func TestRewindRestoresThePromptAndEveryLaterOneWithinItsEpoch(t *testing.T) {
+	d := t.TempDir()
+	a, b := filepath.Join(d, "a.txt"), filepath.Join(d, "b.txt")
+	write := func(p, s string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(a, "orig")
+	j := &UndoJournal{}
+
+	j.BeginPrompt(0, 0, "old conversation")
+	j.Record(a)
+	write(a, "old")
+	// Compaction: the history is replaced, so a new epoch starts.
+	j.BeginPrompt(1, 2, "edit a")
+	j.Record(a)
+	write(a, "v1")
+	j.BeginPrompt(1, 6, "just a question")
+	j.BeginPrompt(1, 8, "create b")
+	j.Record(b)
+	write(b, "new")
+
+	want := []RewindPrompt{{2, "edit a", 1}, {6, "just a question", 0}, {8, "create b", 1}}
+	if got := j.Prompts(1); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("prompts = %v, want %v", got, want)
+	}
+	if len(j.Prompts(0)) != 1 {
+		t.Fatal("epoch 0 should keep its prompt")
+	}
+
+	// /undo empties the newest turn but keeps its prompt for /rewind.
+	if lines := j.Undo(); len(lines) != 1 {
+		t.Fatalf("undo = %v", lines)
+	}
+	if _, err := os.Stat(b); err == nil || len(j.Prompts(1)) != 3 {
+		t.Fatal("undo should remove b and keep the prompts")
+	}
+
+	if lines := j.Rewind(1, 99); lines != nil {
+		t.Fatalf("unknown index should be a no-op, got %v", lines)
+	}
+	if lines := j.Rewind(1, 2); fmt.Sprint(lines) != fmt.Sprint([]string{"restored " + a}) {
+		t.Fatalf("rewind = %v", lines)
+	}
+	if got, _ := os.ReadFile(a); string(got) != "old" {
+		t.Fatalf("a = %q, the earlier epoch's change should stay", got)
+	}
+	if len(j.Prompts(1)) != 0 || len(j.Prompts(0)) != 1 {
+		t.Fatal("rewind should forget only the rewound prompts")
 	}
 }

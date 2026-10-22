@@ -217,6 +217,9 @@ type Agent struct {
 	cacheKey string
 	// planMode: tools that change something are refused and the model is asked for a plan.
 	planMode bool
+	// epoch is bumped whenever the history is replaced (Clear, Compact), so /rewind positions
+	// recorded against an older history are not used against the new one.
+	epoch uint64
 }
 
 func NewAgent(p Provider, tools *ToolRegistry, policy PermissionPolicy, config AgentConfig, tc ToolContext) *Agent {
@@ -235,6 +238,9 @@ func (a *Agent) SetCacheKey(key string) { a.cacheKey = key }
 func (a *Agent) SetPlanMode(on bool)     { a.planMode = on }
 func (a *Agent) PlanMode() bool          { return a.planMode }
 func (a *Agent) LastInputTokens() uint64 { return a.lastInputTokens }
+
+// Epoch is the history epoch: it changes every time the history is replaced (see Clear, Compact).
+func (a *Agent) Epoch() uint64 { return a.epoch }
 
 // Usage returns the tokens spent since this agent was created; Clear does not reset it.
 func (a *Agent) Usage() Usage { return a.usage }
@@ -317,6 +323,7 @@ func (a *Agent) AddShellOutput(command, output string) {
 // Clear drops all conversation context and tool history.
 func (a *Agent) Clear() {
 	a.History = nil
+	a.epoch++
 	a.pendingText.Reset()
 	a.lastInputTokens = 0
 }
@@ -400,6 +407,7 @@ func (a *Agent) Compact(ctx context.Context) (*EvCompacted, error) {
 		{Role: RoleAssistant, Content: []ContentBlock{TextBlock("Understood. I will continue from that summary.")}},
 	}
 	a.lastInputTokens = 0
+	a.epoch++
 	return ev, nil
 }
 
