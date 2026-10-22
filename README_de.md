@@ -456,7 +456,7 @@ Jede Option lässt sich auch über eine Umgebungsvariable setzen, die in der zwe
 | `--setup` | | Startet den Einrichtungsassistenten erneut (Anbieter, Schlüssel, Modell). Zusammen mit `--tui` läuft er in der Vollbild-Oberfläche |
 | `--reset` | | Zurück auf Anfang: löscht `~/.agentiloop`, den agentiloop-Block in deinem Shell-Profil und die vom Assistenten angelegten Schlüsselbund-Einträge (unter Windows: die von ihm gesetzten Benutzer-Umgebungsvariablen). Von Hand geschriebene `export`-Zeilen werden nur auskommentiert, und nur wenn du zustimmst. Mit `--yes` entfallen die Rückfragen |
 | `--max-turns <n>` | | Maximale Anzahl Schritte, die der Agent pro Anfrage machen darf (Standard 50) |
-| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Wie oft eine Anfrage, die aus einem vorübergehenden Grund fehlschlägt (Rate-Limit, überlastet, Serverfehler, abgebrochene Verbindung), erneut gesendet wird, bevor du den Fehler siehst: nach 1 s, 2 s, 4 s… (Standard 3, `0` = nie). Eine Zeile `⟳ retry 1/3` zeigt jeden Versuch. Nicht mehr, sobald die Antwort schon gestreamt wird |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Wie oft eine Anfrage, die aus einem vorübergehenden Grund fehlschlägt (Rate-Limit, überlastet, Serverfehler, abgebrochene Verbindung), erneut gesendet wird, bevor du den Fehler siehst: nach 1 s, 2 s, 4 s… (Standard 3, `0` = nie). Eine Zeile `⟳ retry 1/3` zeigt jeden Versuch. Nicht mehr, sobald die Antwort schon gestreamt wird |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | Wann eine lange Unterhaltung zusammengefasst wird (Standard 150000, `0` = nie) |
 | `-h` / `-V` | | Hilfe / Version |
 

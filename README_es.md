@@ -456,7 +456,7 @@ Cada opción también se puede configurar con una variable de entorno, que apare
 | `--setup` | | Vuelve a ejecutar el asistente de primera configuración (proveedor, clave, modelo). Combínalo con `--tui` para ejecutarlo dentro de la interfaz a pantalla completa |
 | `--reset` | | Como nuevo: borra `~/.agentiloop`, el bloque de agentiloop en tu perfil de shell y los elementos del Llavero que creó el asistente (en Windows: las variables de entorno de usuario que definió). Las líneas `export` escritas a mano solo se comentan, y solo si dices que sí. Añade `--yes` para saltarte las preguntas |
 | `--max-turns <n>` | | Máximo de pasos que puede dar el agente por petición (50 por defecto) |
-| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Cuántas veces se reenvía una petición que falla por un motivo pasajero (límite de peticiones, sobrecarga, error del servidor, conexión cortada) antes de mostrarte el error: tras 1 s, 2 s, 4 s… (3 por defecto, `0` = nunca). Una línea `⟳ retry 1/3` muestra cada intento. No se hace si la respuesta ya empezó a llegar |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Cuántas veces se reenvía una petición que falla por un motivo pasajero (límite de peticiones, sobrecarga, error del servidor, conexión cortada) antes de mostrarte el error: tras 1 s, 2 s, 4 s… (3 por defecto, `0` = nunca). Una línea `⟳ retry 1/3` muestra cada intento. No se hace si la respuesta ya empezó a llegar |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | Cuándo resumir una conversación larga (150000 por defecto, `0` = nunca) |
 | `-h` / `-V` | | Ayuda / versión |
 

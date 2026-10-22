@@ -455,7 +455,7 @@ Chaque option peut aussi être définie par une variable d'environnement, indiqu
 | `--setup` | | Relance l'assistant de première configuration (fournisseur, clé, modèle). Avec `--tui`, il s'exécute dans l'interface plein écran |
 | `--reset` | | Retour à neuf : supprime `~/.agentiloop`, le bloc agentiloop de votre profil shell et les éléments du Trousseau créés par l'assistant (sous Windows : les variables d'environnement utilisateur qu'il a définies). Les lignes `export` écrites à la main sont seulement mises en commentaire, et seulement si vous acceptez. Ajoutez `--yes` pour sauter les questions |
 | `--max-turns <n>` | | Nombre maximal d'étapes que l'agent peut faire par demande (50 par défaut) |
-| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Combien de fois une requête qui échoue pour une raison passagère (limite de débit, surcharge, erreur serveur, connexion coupée) est renvoyée avant que l'erreur ne s'affiche : après 1 s, 2 s, 4 s… (3 par défaut, `0` = jamais). Une ligne `⟳ retry 1/3` montre chaque tentative. Pas de nouvel essai si la réponse a déjà commencé à arriver |
+| `--max-retries <n>` | `AGENTILOOP_MAX_RETRIES` | Combien de fois une requête qui échoue pour une raison passagère (limite de débit, surcharge, erreur serveur, connexion coupée) est renvoyée avant que l'erreur ne s'affiche : après 1 s, 2 s, 4 s… (3 par défaut, `0` = jamais). Une ligne `⟳ retry 1/3` montre chaque tentative. Pas de nouvel essai si la réponse a déjà commencé à arriver |
 | `--compact-at <tokens>` | `AGENTILOOP_COMPACT_AT` | Quand résumer une longue conversation (150000 par défaut, `0` = jamais) |
 | `-h` / `-V` | | Aide / version |
 
