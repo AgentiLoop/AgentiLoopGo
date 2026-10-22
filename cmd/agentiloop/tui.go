@@ -821,7 +821,7 @@ func (a *App) Draw(s tcell.Screen) {
 	a.selAreas = append(a.selAreas, area{0, 0, transcriptW, transcriptH})
 
 	// Input area (4 rows: thin rules above and below, two text rows) and status bar (1 row).
-	// Claude Code-style: no side borders, a "›" gutter, dim rules.
+	// Claude Code-style: no side borders, a ">" gutter, dim rules.
 	iy := transcriptH
 	title := Line{raw(" prompt ")}
 	switch {
@@ -837,7 +837,7 @@ func (a *App) Draw(s tcell.Screen) {
 		s.SetContent(col, iy+3, '─', nil, rule)
 	}
 	drawLine(s, 1, iy, max(w-2, 0), title)
-	s.SetContent(0, iy+1, '›', nil, fg(orange))
+	s.SetContent(0, iy+1, '>', nil, fg(orange))
 	const gutter = 2
 	inner := max(w-gutter, 1)
 	const innerH = 2
