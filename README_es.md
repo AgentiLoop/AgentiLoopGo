@@ -396,6 +396,12 @@ Teclas en la TUI: **Enter** envía · **↑ / ↓** recorren las peticiones ante
 
 Escribe `@` seguido de una ruta en cualquier parte del prompt y AgentiLoop adjunta ese archivo a lo que recibe el modelo: `explica @src/main.rs` envía tu frase más el texto del archivo con números de línea. Una carpeta (`@src`) adjunta su listado. Las rutas son relativas a la carpeta del proyecto (o absolutas, o `~/…`); una palabra que no nombra nada se deja tal cual, así que las direcciones de correo están a salvo. Los archivos se recortan a 64 KB, las carpetas a 200 entradas, y una línea 📎 muestra qué se adjuntó. Funciona en la TUI, el chat y los prompts de una sola vez.
 
+
+---
+
+## Ejecuta un comando de shell con !
+
+Empieza una línea con `!` y AgentiLoop la ejecuta como comando de shell en vez de enviarla al modelo: `!git status`, `!cargo test`, `!ls src`. Ves la salida al instante y se añade a la conversación, así que puedes seguir con «arregla esos tests que fallan» y el modelo ya los tiene. El comando se ejecuta en la carpeta del proyecto con la misma shell, tiempo límite de 120 s y tope de salida de 30 KB que la herramienta `bash` del modelo. Funciona en la TUI y en el chat.
 ---
 
 ## Recuerda tu configuración
@@ -483,6 +489,7 @@ Escríbelos en el prompt, en la TUI o en el chat:
 
 | Comando | Qué hace |
 |---|---|
+| `!<comando>` | Ejecuta un comando de shell aquí y añade su salida a la conversación (ver [Ejecuta un comando de shell con !](#ejecuta-un-comando-de-shell-con-)) |
 | `/model` | Muestra los modelos disponibles. `/model 3` o `/model <id>` cambia de modelo (y se recuerda) |
 | `/sessions` | Lista tus conversaciones guardadas, de la más reciente a la más antigua |
 | `/resume <n or id>` | Vuelve a abrir una de ellas |

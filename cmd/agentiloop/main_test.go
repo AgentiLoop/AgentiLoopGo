@@ -445,3 +445,12 @@ func TestMaxRetriesFlagAndEnv(t *testing.T) {
 		t.Fatal("negative env value must be rejected")
 	}
 }
+
+func TestShellLineShowsTheCommandThenTheOutput(t *testing.T) {
+	if got := shellLine("ls", "a\nb\n"); got != "$ ls\na\nb" {
+		t.Fatal(got)
+	}
+	if got := shellLine("true", ""); got != "$ true\n(no output)" {
+		t.Fatal(got)
+	}
+}

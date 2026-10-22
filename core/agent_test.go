@@ -753,3 +753,29 @@ func TestAFailureAfterStreamedTextIsNotRetried(t *testing.T) {
 		t.Fatalf("%v calls %d retries %d", err, p.callCount(), len(retryEvents(evs)))
 	}
 }
+
+func TestBangLinesAreShellCommands(t *testing.T) {
+	for line, want := range map[string]string{"!git status": "git status", "  ! ls -la  ": "ls -la", "!": "", "!   ": "", "fix it!": "", "/help": ""} {
+		got, ok := ShellPassthrough(line)
+		if got != want || ok != (want != "") {
+			t.Fatalf("%q: got %q %v", line, got, ok)
+		}
+	}
+}
+
+func TestShellNoteHasTheCommandAndTheCutOutput(t *testing.T) {
+	if got := ShellNote("ls", "a\nb\n"); got != "I ran this shell command myself in the project folder:\n$ ls\n\na\nb" {
+		t.Fatal(got)
+	}
+	if got := ShellNote("true", "  \n"); !strings.HasSuffix(got, "(no output)") {
+		t.Fatal(got)
+	}
+	if got := ShellNote("cat big", strings.Repeat("x", ShellNoteLimit+10)); !strings.HasSuffix(got, "…[10 more bytes]") {
+		t.Fatal(got[len(got)-40:])
+	}
+	a := NewAgent(&scripted{}, NewToolRegistry(), policyFunc(func(string, bool) Permission { return Allow }), DefaultAgentConfig(), ToolContext{Cwd: "."})
+	a.AddShellOutput("ls", "a")
+	if len(a.History) != 1 || a.History[0].Role != RoleUser || !strings.Contains(a.History[0].Text(), "$ ls") {
+		t.Fatalf("%+v", a.History)
+	}
+}

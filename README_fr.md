@@ -395,6 +395,12 @@ Touches dans la TUI : **Enter** envoie · **↑ / ↓** parcourent les demandes 
 
 Tapez `@` suivi d'un chemin n'importe où dans un prompt et AgentiLoop joint ce fichier à ce que reçoit le modèle : `explique @src/main.rs` envoie votre phrase plus le texte du fichier avec les numéros de ligne. Un dossier (`@src`) joint sa liste. Les chemins sont relatifs au dossier du projet (ou absolus, ou `~/…`) ; un mot qui ne désigne rien est laissé tel quel, les adresses e-mail ne risquent donc rien. Les fichiers sont coupés à 64 Ko, les dossiers à 200 entrées, et une ligne 📎 montre ce qui a été joint. Fonctionne dans la TUI, le chat et les prompts en une fois.
 
+
+---
+
+## Lancer une commande shell avec !
+
+Commencez une ligne par `!` et AgentiLoop l'exécute comme commande shell au lieu de l'envoyer au modèle : `!git status`, `!cargo test`, `!ls src`. Vous voyez la sortie tout de suite et elle est ajoutée à la conversation : vous pouvez enchaîner avec « corrige ces tests qui échouent », le modèle les a déjà. La commande tourne dans le dossier du projet avec le même shell, le même délai de 120 s et la même limite de sortie de 30 Ko que l'outil `bash` du modèle. Fonctionne dans la TUI et dans le chat.
 ---
 
 ## Il se souvient de votre configuration
@@ -482,6 +488,7 @@ Tapez-les à l'invite, dans la TUI ou dans le chat :
 
 | Commande | Ce qu'elle fait |
 |---|---|
+| `!<commande>` | Lance une commande shell ici et ajoute sa sortie à la conversation (voir [Lancer une commande shell avec !](#lancer-une-commande-shell-avec-)) |
 | `/model` | Affiche les modèles disponibles. `/model 3` ou `/model <id>` change de modèle (et c'est retenu) |
 | `/sessions` | Liste vos conversations enregistrées, des plus récentes aux plus anciennes |
 | `/resume <n or id>` | Rouvre l'une d'elles |

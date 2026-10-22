@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -275,6 +276,12 @@ func (a *Agent) ResolveLimits(ctx context.Context) ModelLimits {
 	}
 	a.limits = &limits
 	return limits
+}
+
+// AddShellOutput records a shell command the user ran themselves (`!cmd` in the
+// REPL / TUI) and its output as a user turn, so the model sees it on the next request.
+func (a *Agent) AddShellOutput(command, output string) {
+	a.History = append(a.History, UserText(ShellNote(command, output)))
 }
 
 // Clear drops all conversation context and tool history.
@@ -582,6 +589,38 @@ func waitRetry(ctx context.Context, attempt, maxRetries int, cause error, onEven
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// ShellPassthrough returns the command behind a `!cmd` prompt line (REPL / TUI):
+// the text after the `!`, or false when the line isn't one (`!` alone, or a line
+// that merely contains a `!`).
+func ShellPassthrough(line string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "!")
+	if !ok {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	return rest, rest != ""
+}
+
+// ShellNoteLimit is the longest shell output kept in the conversation for a `!cmd` line (bytes).
+const ShellNoteLimit = 30_000
+
+// ShellNote is the user turn recorded for a `!cmd` line: the command and its (cut) output.
+func ShellNote(command, output string) string {
+	output = strings.TrimRightFunc(output, unicode.IsSpace)
+	body := output
+	switch {
+	case output == "":
+		body = "(no output)"
+	case len(output) > ShellNoteLimit:
+		cut := ShellNoteLimit
+		for cut > 0 && !utf8.RuneStart(output[cut]) {
+			cut--
+		}
+		body = fmt.Sprintf("%s\n…[%d more bytes]", output[:cut], len(output)-cut)
+	}
+	return "I ran this shell command myself in the project folder:\n$ " + command + "\n\n" + body
 }
 
 // Transcript is the plain-text rendering of the history for the compaction prompt.

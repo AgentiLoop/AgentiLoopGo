@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/AgentiLoop/AgentiLoopGo/core"
@@ -480,6 +481,15 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p
 		}
+		// `!cmd` runs here, not through the model; the output joins the conversation.
+		if cmd, ok := core.ShellPassthrough(line); ok {
+			output := runShell(ctx, cwd, cmd)
+			q.Send(uiLine{shellLine(cmd, output)})
+			st.agent.AddShellOutput(cmd, output)
+			st.persist()
+			q.Send(uiIdle{})
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			// Collect the command's output into one transcript entry so
 			// multi-line output (the /model list) isn't double-spaced.
@@ -602,6 +612,13 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p
 		}
+		if cmd, ok := core.ShellPassthrough(line); ok {
+			output := runShell(ctx, cwd, cmd)
+			fmt.Fprintln(os.Stderr, shellLine(cmd, output))
+			st.agent.AddShellOutput(cmd, output)
+			st.persist()
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			before := st.session.ID
 			if err := st.slashCommand(ctx, line, func(s string) { fmt.Fprintln(os.Stderr, s) }); err != nil {
@@ -689,6 +706,26 @@ func replayREPL(history []core.Message) {
 }
 
 // persist snapshots the agent's history into the session file. Empty histories are not written.
+// runShell runs a `!cmd` line through the bash tool (same shell, timeout and
+// output cap as the model's commands); a failure is returned as its message.
+func runShell(ctx context.Context, cwd, command string) string {
+	input, _ := json.Marshal(map[string]string{"command": command})
+	out, err := tools.Bash{}.Call(ctx, core.ToolContext{Cwd: cwd}, input)
+	if err != nil {
+		return err.Error()
+	}
+	return out
+}
+
+// shellLine is what a `!cmd` line shows on screen: the command, then its output.
+func shellLine(command, output string) string {
+	output = strings.TrimRightFunc(output, unicode.IsSpace)
+	if output == "" {
+		output = "(no output)"
+	}
+	return "$ " + command + "\n" + output
+}
+
 func (st *cmdState) persist() {
 	if st.sessionsDir == "" {
 		return
@@ -738,7 +775,8 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 	return nil
 }
 
-const helpText = "/model [n|id]   show picker, or pick #n / set id directly\n" +
+const helpText = "!<command>      run a shell command here; its output joins the conversation\n" +
+	"/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
 	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
