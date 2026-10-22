@@ -861,11 +861,14 @@ func (a *App) Draw(s tcell.Screen) {
 	}
 	bar = append(bar, styled("  Enter send · Esc cancel · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(orange)))
 	rev := tcell.StyleDefault.Foreground(orange).Reverse(true)
-	fill(s, 0, h-1, w, 1, rev)
+	tag := " Go " + version + " "
+	tagW := utf8.RuneCountInString(tag)
+	fill(s, 0, h-1, w-tagW, 1, rev)
 	for i := range bar {
 		bar[i].Style = bar[i].Style.Reverse(true)
 	}
-	drawLine(s, 0, h-1, w, bar)
+	drawLine(s, 0, h-1, w-tagW, bar)
+	drawLine(s, w-tagW, h-1, tagW, Line{styled(tag, tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlue))})
 
 	if a.sel != nil {
 		for _, r := range a.sel.rows() {
@@ -881,7 +884,6 @@ func (a *App) Draw(s tcell.Screen) {
 		a.drawModal(s, w, h)
 	}
 }
-
 
 var spinner = []string{"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"}
 var dots = []string{"   ", ".  ", ".. ", "..."}
