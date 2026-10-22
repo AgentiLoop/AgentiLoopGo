@@ -823,7 +823,7 @@ func (a *App) Draw(s tcell.Screen) {
 	// Input area (4 rows: thin rules above and below, two text rows) and status bar (1 row).
 	// Claude Code-style: no side borders, a ">" gutter, dim rules.
 	iy := transcriptH
-	title := Line{raw(" prompt ")}
+	var title Line
 	switch {
 	case a.busy:
 		title = a.busyTitle()
@@ -837,9 +837,10 @@ func (a *App) Draw(s tcell.Screen) {
 	fill(s, 0, iy, w, 1, rule)
 	fill(s, 0, iy+3, w, 1, rule)
 	drawLine(s, 0, iy, w, title)
+	// Keep the whole top rule dim gray, including under any title text.
 	for col := 0; col < w; col++ {
 		m, c, st, _ := s.GetContent(col, iy)
-		s.SetContent(col, iy, m, c, st.Underline(true))
+		s.SetContent(col, iy, m, c, st.Underline(true, tcell.ColorDarkGray))
 	}
 	s.SetContent(0, iy+1, '>', nil, fg(orange))
 	const gutter = 2
