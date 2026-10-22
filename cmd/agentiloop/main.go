@@ -826,6 +826,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
+	"/status         where you are: folder, provider, model and its limits, session, tools, hooks, settings\n" +
 	"/plan [on|off]  plan mode: tools that change something are off, the model plans instead\n" +
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
@@ -906,6 +907,29 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 				say(fmt.Sprintf("context: %d tokens", last))
 			}
 		}
+	case "/status":
+		var paths []string
+		for _, i := range core.LoadInstructions(st.session.Cwd, agentiloopHome()) {
+			paths = append(paths, i.Path)
+		}
+		say(statusText(statusInfo{
+			cwd:             st.session.Cwd,
+			provider:        st.provider.Name(),
+			model:           agent.Model(),
+			limits:          agent.Limits(),
+			sessionID:       st.session.ID,
+			messages:        len(agent.History),
+			lastInputTokens: agent.LastInputTokens(),
+			planMode:        agent.PlanMode(),
+			tools:           agent.ToolNames(),
+			mcpServers:      len(st.mcp.Servers),
+			mcpTools:        st.mcp.ToolCount(),
+			hooks:           len(agent.Hooks()),
+			instructions:    paths,
+			maxTurns:        agent.Config().MaxTurns,
+			maxRetries:      agent.Config().MaxRetries,
+			usage:           agent.Usage(),
+		}))
 	case "/export":
 		st.session.History = append([]core.Message(nil), agent.History...)
 		if len(st.session.History) == 0 {
@@ -1067,6 +1091,74 @@ func usageLine(u core.Usage) string {
 		line += fmt.Sprintf(" (prompt cache: %d read, %d written)", u.CacheReadTokens, u.CacheWriteTokens)
 	}
 	return line
+}
+
+// statusInfo is everything /status shows, gathered by the caller.
+type statusInfo struct {
+	cwd, provider, model string
+	limits               *core.ModelLimits
+	sessionID            string
+	messages             int
+	lastInputTokens      uint64
+	planMode             bool
+	tools                []string
+	mcpServers, mcpTools int
+	hooks                int
+	instructions         []string
+	maxTurns, maxRetries int
+	usage                core.Usage
+}
+
+// statusText is the /status text: one `label: value` line per item.
+func statusText(s statusInfo) string {
+	model := s.model
+	if l := s.limits; l != nil {
+		model += fmt.Sprintf("  (max output %d tokens", l.MaxTokens)
+		if l.ContextWindow != nil {
+			model += fmt.Sprintf(", context %d", *l.ContextWindow)
+		}
+		if l.CompactAtTokens > 0 {
+			model += fmt.Sprintf(", compact at %d", l.CompactAtTokens)
+		} else {
+			model += ", compaction off"
+		}
+		model += ")"
+	} else {
+		model += "  (limits are looked up on the first request)"
+	}
+	session := fmt.Sprintf("%s  (%d messages", s.sessionID, s.messages)
+	if s.lastInputTokens > 0 {
+		session += fmt.Sprintf(", last request %d input tokens", s.lastInputTokens)
+	}
+	session += ")"
+	tools := fmt.Sprintf("%d: %s", len(s.tools), strings.Join(s.tools, ", "))
+	if s.mcpServers > 0 {
+		tools += fmt.Sprintf("  (%d of them from %d MCP server(s))", s.mcpTools, s.mcpServers)
+	}
+	plan := "off"
+	if s.planMode {
+		plan = "on (/plan off to run tools again)"
+	}
+	hooks := "none"
+	if s.hooks > 0 {
+		hooks = fmt.Sprintf("%d (/hooks lists them)", s.hooks)
+	}
+	instructions := "none (/init creates AGENTS.md)"
+	if len(s.instructions) > 0 {
+		instructions = strings.Join(s.instructions, ", ")
+	}
+	return strings.Join([]string{
+		"folder:        " + s.cwd,
+		"provider:      " + s.provider,
+		"model:         " + model,
+		"session:       " + session,
+		"plan mode:     " + plan,
+		"tools:         " + tools,
+		"hooks:         " + hooks,
+		"instructions:  " + instructions,
+		fmt.Sprintf("settings:      max turns %d, retries %d", s.maxTurns, s.maxRetries),
+		"usage:         " + usageLine(s.usage),
+	}, "\n")
 }
 
 // planLine is what /plan and --plan print.

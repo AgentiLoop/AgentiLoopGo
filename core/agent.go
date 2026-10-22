@@ -252,6 +252,18 @@ func (a *Agent) Tools() *ToolRegistry     { return a.tools }
 func (a *Agent) Policy() PermissionPolicy { return a.policy }
 func (a *Agent) Hooks() Hooks             { return a.config.Hooks }
 
+// Config is the configuration in effect (model, limits, hooks, retries).
+func (a *Agent) Config() AgentConfig { return a.config }
+
+// ToolNames are the registered tools' names, in registration order.
+func (a *Agent) ToolNames() []string {
+	var names []string
+	for _, t := range a.tools.All() {
+		names = append(names, t.Name())
+	}
+	return names
+}
+
 // SetSystemPrompt replaces the system prompt (the CLI rebuilds it after a `# note` changed AGENTS.md).
 func (a *Agent) SetSystemPrompt(prompt string) { a.config.SystemPrompt = prompt }
 

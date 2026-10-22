@@ -454,3 +454,28 @@ func TestShellLineShowsTheCommandThenTheOutput(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestStatusListsEveryItemAndAdaptsToWhatIsKnown(t *testing.T) {
+	info := statusInfo{cwd: "/p", provider: "anthropic", model: "m", sessionID: "s1", tools: []string{"read_file", "bash"}, maxTurns: 50, maxRetries: 3}
+	has := func(text string, parts ...string) {
+		t.Helper()
+		for _, p := range parts {
+			if !strings.Contains(text, p) {
+				t.Fatalf("missing %q in:\n%s", p, text)
+			}
+		}
+	}
+	has(statusText(info), "folder:        /p", "provider:      anthropic", "model:         m  (limits are looked up on the first request)",
+		"session:       s1  (0 messages)", "plan mode:     off", "tools:         2: read_file, bash\n", "hooks:         none",
+		"instructions:  none (/init creates AGENTS.md)", "settings:      max turns 50, retries 3", "usage:         0 request(s) since start")
+	win := uint64(200_000)
+	info.limits = &core.ModelLimits{MaxTokens: 8192, ContextWindow: &win, CompactAtTokens: 160_000}
+	info.messages, info.lastInputTokens, info.planMode = 4, 1234, true
+	info.mcpServers, info.mcpTools, info.hooks = 1, 1, 2
+	info.instructions = []string{"/p/AGENTS.md"}
+	has(statusText(info), "model:         m  (max output 8192 tokens, context 200000, compact at 160000)",
+		"session:       s1  (4 messages, last request 1234 input tokens)", "plan mode:     on (/plan off to run tools again)",
+		"tools:         2: read_file, bash  (1 of them from 1 MCP server(s))", "hooks:         2 (/hooks lists them)", "instructions:  /p/AGENTS.md")
+	info.limits = &core.ModelLimits{MaxTokens: 8192}
+	has(statusText(info), "model:         m  (max output 8192 tokens, compaction off)")
+}
