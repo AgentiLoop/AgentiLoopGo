@@ -26,17 +26,17 @@ Like what you see? Help keep AgentiLoop fast and cross-platform. Sponsor us on *
 
 AgentiLoop is an AI coding agent that runs in your terminal, in the spirit of Claude Code. You describe what you want in plain language. The agent reads your files, edits code and runs commands to get it done, and it asks your permission before it changes anything.
 
-It's written in Go and runs on macOS, Linux and Windows. It is the Go twin of [AgentiLoopCLI](https://github.com/AgentiLoop/AgentiLoopCLI) (Rust): same features, same options, same settings, session and MCP files, so you can switch between them freely. It works with Claude (Anthropic), OpenAI, local models through Ollama or LM Studio, and oMLX on Apple Silicon.
+It's written in Go and runs on macOS, Linux and Windows. It is the Go twin of [AgentiLoopCLI](https://github.com/AgentiLoop/AgentiLoopCLI) (Rust): same features, same options, same settings, session and MCP files, so you can switch between them freely. It works with Claude (Anthropic), OpenAI, local models through Ollama or LM Studio, and oMLX on Apple Silicon. There is nothing to configure by hand: the first time you run it, a built-in setup wizard asks which provider you want, takes your key, checks that it works and saves it. About a minute, no config files, no `export` lines.
 
-Created with AgentiLoop Agent! This is our baby. Prebuilt binaries for macOS, Linux and Windows are on the [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) page, or compile it from source with Go.
+Prebuilt binaries are on the [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) page; building from source is covered under [For developers](#for-developers). Created with AgentiLoop Agent! This is our baby.
 
 <img src="docs/pong.png" width="900" alt="AgentiLoop writing, building and launching an Atari-style Pong game in SwiftUI from a single prompt, with the live diff and the running game window" />
 
 ---
 
-## 🚀 New here? Up and running in 5 minutes
+## 🚀 Get started in 5 minutes
 
-No Rust, no Go, no compiling. You download one file, give it an API key and start chatting. Follow the steps in order.
+No Go, no compiling. You download one file, give it an API key and start chatting. Follow the steps in order.
 
 ### 1. Download AgentiLoop
 
@@ -211,8 +211,6 @@ It should go straight to the prompt. If the wizard starts again instead, the key
 
 ### 5. Your first session
 
-Go to a project folder and start the full-screen interface:
-
 Start with a new, empty test folder so you can try it safely. For a real project, `cd` into that project's folder instead (for example `cd ~/code/my-app`).
 
 ```sh
@@ -221,9 +219,7 @@ cd ~/agentiloop-test
 agentiloop --tui
 ```
 
-Using **Ollama**? Tell it the provider and a model you've pulled: `agentiloop -p openai -m qwen2.5-coder --tui`.
-
-Now just type what you want in plain English and press **Enter**. Some good first prompts:
+`--tui` opens the full-screen interface, which we recommend. Type what you want in plain English and press **Enter**. Some good first prompts:
 
 ```text
 explain what this project does
@@ -234,89 +230,16 @@ run the tests and fix anything that fails
 create a README.md for this project
 ```
 
-Before the agent changes a file or runs a command, it asks you. Press **y** for yes, **n** for no, **a** to always allow that tool for the session, or **Esc** to cancel the request. **Esc** also stops the agent at any point while it is working; the conversation is kept, so just type your next prompt. Press **Ctrl-C** to quit. Next time, a plain `agentiloop` starts the same way and picks up your last conversation.
+You'll see the agent's replies, each tool it uses (🔧) and each result (✓ or ✖). The box at the bottom shows what it's doing right now, for example ` ✻ Thinking...  12s `. Before it writes a file or runs a command, it asks you:
 
-Just want one answer without the chat? Pass the question as an argument:
+- **y**: yes, this time
+- **n**: no
+- **a**: always allow this tool for the rest of the session
+- **Esc**: cancel the whole request; the conversation is kept
 
-```sh
-agentiloop "explain what this project does"
-```
+Press **Esc** any time the agent is working to stop it. What it already did and said stays in the session, so you can type a correction or a new prompt right away. (Without `--tui`, **Ctrl-C** stops a running request instead.)
 
-### What can it do? (tools)
-
-The agent works with ten built-in tools. You don't call them yourself. You describe the goal, and the agent picks the tool:
-
-| Tool | What it does | Asks first? |
-|---|---|---|
-| `read_file` | Reads a file (with line numbers) | No |
-| `list_dir` | Lists the files in a folder | No |
-| `glob` | Finds files by name pattern (`*.rs`, `src/**/*.go`) | No |
-| `grep` | Searches inside files with a regular expression | No |
-| `web_fetch` | Fetches a web page or API response as plain text | **Yes** |
-| `todo_write` | Keeps the model's own checklist for multi-step work | No |
-| `write_file` | Creates a new file or overwrites one | **Yes** |
-| `edit_file` | Changes an exact piece of text in a file | **Yes** |
-| `bash` | Runs a shell command, like tests, builds or `git` (`sh -c` on Mac/Linux, `cmd /C` on Windows) | **Yes** |
-| `task` | Starts a sub-agent with an empty conversation for a self-contained job (exploring, researching) and brings back only its answer. It has the same tools and asks the same questions; it cannot start sub-agents of its own | No (its own tool calls ask as usual) |
-
-Want more tools, like web search, databases or GitHub? Add MCP servers; see [Adding tools with MCP](#adding-tools-with-mcp-optional).
-
-### The help command
-
-`agentiloop --help` lists every option:
-
-```text
-$ agentiloop --help
-AgentiLoop — a cross-platform agentic coding loop for your terminal.
-
-Usage: agentiloop [OPTIONS] [PROMPT]...
-
-Arguments:
-  [PROMPT]...  One-shot prompt. If omitted, starts an interactive REPL. A lone `-` in it is replaced by
-               what is piped on stdin: git diff | agentiloop "review this" -
-
-Options:
-  -p, --provider PROVIDER           Model backend (PROVIDER): anthropic, openai (OpenAI-compatible: OpenAI, Ollama,
-                                    LM Studio, Groq, OpenRouter, … via OPENAI_BASE_URL), omlx (local
-                                    oMLX server, http://localhost:8000/v1), or codex (ChatGPT plan via
-                                    `codex login`). Defaults to the last one used, then auto-detected from
-                                    which credentials are set. [env: AGENTILOOP_PROVIDER]
-  -m, --model MODEL                 MODEL id to use. Defaults to the last model used with this provider
-                                    (~/.agentiloop/settings.json), then the provider's default. [env: AGENTILOOP_MODEL]
-      --yes                         Skip all permission prompts (dangerous; intended for CI). Never remembered. [env: AGENTILOOP_YES]
-      --max-turns N                 Max provider round-trips (N) per prompt [default: last used, then 50]
-      --max-retries N               Retries (N) of a provider call that fails transiently (rate limit, overloaded, 5xx,
-                                    dropped connection) before the error is reported; 0 = never retry. [env: AGENTILOOP_MAX_RETRIES] (default 3)
-      --compact-at TOKENS           Summarize the conversation once a request reaches this many input TOKENS (0 = never)
-                                    [default: last used, then 80% of the model's context window] [env: AGENTILOOP_COMPACT_AT]
-  -C, --cwd DIR                     Working directory (DIR) the agent operates in (defaults to cwd)
-  -r, --resume ID                   Resume a saved session by ID (see /sessions)
-  -c, --continue                    Resume the most recent session for this working directory
-                                    (the default for interactive launches; kept for scripts)
-      --new                         Start a new session instead of continuing the last one in this directory
-      --tui                         Full-screen terminal UI instead of the line REPL. Remembered. [env: AGENTILOOP_TUI]
-      --no-tui                      Use the line REPL even if the TUI was used last time
-      --no-mcp                      Don't start MCP servers from ~/.agentiloop/mcp.json / ./.mcp.json. [env: AGENTILOOP_NO_MCP]
-      --setup                       Run the first-time setup wizard (provider, key, model). Runs by itself on a
-                                    machine with no credentials and no ~/.agentiloop.
-      --reset                       Back to brand new: delete ~/.agentiloop (settings, env, history, sessions,
-                                    mcp.json), the agentiloop block in your shell profile and Keychain items the
-                                    wizard created. Asks first unless --yes.
-      --allow-tool NAME             Run this tool without asking (repeatable or comma-separated; NAME* matches a prefix, e.g. mcp_*)
-      --deny-tool NAME              Never run this tool NAME; the model is told it was denied (same name rules). Beats --allow-tool and --yes
-      --plan                        Plan mode: tools that change something (write_file, edit_file, bash, task, mutating MCP
-                                    tools) are switched off and the model is asked for a plan instead. Toggle with /plan. [env: AGENTILOOP_PLAN]
-      --append-system-prompt TEXT   Extra TEXT added to the end of the system prompt for this run (never saved). [env: AGENTILOOP_APPEND_SYSTEM_PROMPT]
-      --json                        One-shot only: print the answer as one JSON object on stdout (result, is_error, session_id,
-                                    provider, model, usage) instead of streaming text. Tool activity still goes to stderr.
-      --stream-json                 One-shot only: print every event as one JSON object per line on stdout as it happens
-                                    (text_delta, text, tool_call, tool_result, turn, compacted, retry, done), then the same result
-                                    object as --json with "type": "result". Nothing else is printed.
-  -h, --help                        Print help
-  -V, --version                     Print version
-```
-
-Inside a session, type `/help` to see the chat commands (`/model`, `/sessions`, `/resume`, `/clear`, `/compact`, `/mcp`, `/exit`). The full reference is in [All options](#all-options) and [Commands inside the chat](#commands-inside-the-chat).
+**Ctrl-C** quits. Next time, a plain `agentiloop` starts the same way and picks up your last conversation. Using **Ollama**? To switch to another model you've pulled, type `/model` inside the session.
 
 ### Stuck? Quick fixes
 
@@ -331,100 +254,6 @@ Inside a session, type `/help` to see the chat commands (`/model`, `/sessions`, 
 | It keeps using an old model or provider | It remembers your last choices. Pass `-p` / `-m` to change them, or run `agentiloop --reset` to start over |
 
 Still stuck? [Open an issue](https://github.com/AgentiLoop/AgentiLoopGo/issues) and paste the command and the error. We'll help.
-
----
-
-## Quick start
-
-Three steps: install it, give it a model, run it.
-
-### Step 1: Install
-
-**Download:** grab the archive for your platform from [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases), unpack it and put `agentiloop` (`agentiloop.exe` on Windows) on your PATH.
-
-**Or build it:** if you don't have Go yet (1.25 or newer), install it from [go.dev/dl](https://go.dev/dl). Then:
-
-```sh
-go install github.com/AgentiLoop/AgentiLoopGo/cmd/agentiloop@latest
-```
-
-or from a clone:
-
-```sh
-git clone https://github.com/AgentiLoop/AgentiLoopGo.git
-cd AgentiLoopGo
-go install ./cmd/agentiloop
-```
-
-This builds the program and puts an `agentiloop` command on your PATH, in `~/go/bin` (`%USERPROFILE%\go\bin` on Windows). No C compiler is needed.
-
-> **Not installing?** Everything in this README also works from inside the repo folder. Wherever you see `agentiloop <options>`, type `go run ./cmd/agentiloop <options>` instead.
-
-### Step 2: Connect a model
-
-AgentiLoop needs a model to talk to.
-
-**Easiest:** just run `agentiloop`. On a machine with no key set up it starts a short wizard that asks which provider you want, takes your key (typed hidden), checks the connection, lets you pick a model and saves the key to `~/.agentiloop/env` (only AgentiLoop reads it). You can rerun it any time with `agentiloop --setup`, and `agentiloop --reset` puts everything back to brand new.
-
-<img src="docs/setup-wizard-tui.png" width="900" alt="The setup wizard running inside the full-screen TUI: provider, hidden API key, connection check, model list, where to save the key, then the first prompt" />
-
-```bash
-agentiloop --setup          # wizard on the plain terminal
-agentiloop --setup --tui    # wizard inside the full-screen TUI (as in the screenshot)
-/setup                      # rerun it from inside a running session (REPL or TUI)
-```
-
-The wizard runs in whichever interface you use. `agentiloop --setup` asks its questions on the plain terminal; `agentiloop --setup --tui` (or a remembered TUI) asks them inside the full-screen interface, as in the screenshot, and drops you straight into the prompt when it is done. Inside a running session, `/setup` does the same in both.
-
-**By hand:** set one of these in your terminal instead:
-
-| I want to use… | Do this |
-|---|---|
-| **Claude** (Anthropic) | `export ANTHROPIC_API_KEY=sk-ant-...` |
-| **OpenAI** | `export OPENAI_API_KEY=sk-...` |
-| **Ollama, LM Studio**, or any OpenAI-compatible server | `export OPENAI_BASE_URL=http://localhost:11434/v1` (use your server's address; no key needed for local servers) |
-| **oMLX** (local models on Apple Silicon) | Usually nothing. Start oMLX, then run AgentiLoop with `-p omlx` (see below) |
-
-For Claude you can use a normal API key (`sk-ant-api…`) or a Claude Code token (`sk-ant-oat01-…`, which you get from `claude setup-token`). AgentiLoop detects which kind it is.
-
-**oMLX details.** When oMLX runs on the same Mac, AgentiLoop reads the server port and API key from oMLX's own settings file (`~/.omlx/settings.json`), so you don't need to export anything. If oMLX runs on another machine, or you want to override those settings, export them yourself:
-
-```sh
-export OMLX_BASE_URL=http://192.168.1.50:7777/v1   # the oMLX server's address (or OMLX_PORT=7777 for localhost)
-export OMLX_API_KEY=...                            # the API key from oMLX's settings
-```
-
-If oMLX has API key verification turned off, no key is needed.
-
-An `export` only lasts for the terminal tab you typed it in. To make it permanent, add the line to your shell profile (`~/.zshrc` on macOS). On a Mac you can keep the key in the Keychain rather than in the file:
-
-```sh
-# one time: store the key in your Keychain
-security add-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w "sk-ant-..."
-
-# in ~/.zshrc: load it for every new terminal
-export ANTHROPIC_API_KEY="$(security find-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w 2>/dev/null)"
-```
-
-### Step 3: Run it
-
-Go to the project you want to work on and start AgentiLoop:
-
-```sh
-cd ~/my-project
-agentiloop --tui
-```
-
-`--tui` opens the full-screen interface, which we recommend. Type what you want, e.g. *"find where the config file is loaded and add a --verbose flag"*, and press Enter.
-
-You'll see the agent's replies, each tool it uses (🔧) and each result (✓ or ✖). The box at the bottom shows what it's doing right now, for example ` ✻ Thinking...  12s `. Before it writes a file or runs a command, it asks you:
-
-- **y**: yes, this time
-- **n**: no
-- **a**: always allow this tool for the rest of the session
-- **Esc**: cancel the whole request; the conversation is kept
-
-Press **Esc** any time the agent is working to stop it. What it already did and said stays in the session, so you can type a correction or a new prompt right away. (Without `--tui`, **Ctrl-C** stops a running request instead.)
 
 ---
 
@@ -461,6 +290,27 @@ Start a line with `!` and AgentiLoop runs it as a shell command instead of sendi
 Start a line with `# ` and AgentiLoop saves the rest as a note in the project's `AGENTS.md` instead of sending it to the model: `# run cargo fmt before every commit`, `# the API client lives in src/net`. The note is added as a bullet under a `## Notes` heading (the file is created from the `/init` template if there is none, and an existing `CLAUDE.md` is used instead). Since `AGENTS.md` goes into the system prompt, the model follows the note from the next request on, and in every later session. Works in the TUI and the chat.
 ---
 
+## What can it do? (tools)
+
+The agent works with ten built-in tools. You don't call them yourself. You describe the goal, and the agent picks the tool:
+
+| Tool | What it does | Asks first? |
+|---|---|---|
+| `read_file` | Reads a file (with line numbers) | No |
+| `list_dir` | Lists the files in a folder | No |
+| `glob` | Finds files by name pattern (`*.rs`, `src/**/*.go`) | No |
+| `grep` | Searches inside files with a regular expression | No |
+| `web_fetch` | Fetches a web page or API response as plain text | **Yes** |
+| `todo_write` | Keeps the model's own checklist for multi-step work | No |
+| `write_file` | Creates a new file or overwrites one | **Yes** |
+| `edit_file` | Changes an exact piece of text in a file | **Yes** |
+| `bash` | Runs a shell command, like tests, builds or `git` (`sh -c` on Mac/Linux, `cmd /C` on Windows) | **Yes** |
+| `task` | Starts a sub-agent with an empty conversation for a self-contained job (exploring, researching) and brings back only its answer. It has the same tools and asks the same questions; it cannot start sub-agents of its own | No (its own tool calls ask as usual) |
+
+Want more tools, like web search, databases or GitHub? Add MCP servers; see [Adding tools with MCP](#adding-tools-with-mcp-optional).
+
+---
+
 ## It remembers your setup
 
 You only type your options once. AgentiLoop saves how you launched it, so next time a plain `agentiloop` starts the same way:
@@ -492,13 +342,13 @@ Some things are **never** remembered on purpose:
 - `--no-mcp`, `-C` and one-shot prompts
 - API keys: those live in `~/.agentiloop/env` (written by the wizard) or your shell environment, never in `settings.json`
 
-To forget everything, delete `~/.agentiloop/settings.json`.
+To forget everything, delete `~/.agentiloop/settings.json`, or run `agentiloop --reset` to go back to brand new.
 
 ---
 
 ## All options
 
-Every option can also be set with an environment variable, shown in the second column. An option you type always beats a remembered value.
+`agentiloop --help` prints this list in the terminal. Every option can also be set with an environment variable, shown in the second column. An option you type always beats a remembered value.
 
 | Option | Env variable | What it does |
 |---|---|---|
@@ -673,6 +523,26 @@ You'll rarely need these:
 ---
 
 ## For developers
+
+### Build from source
+
+If you don't have Go yet (1.25 or newer), install it from [go.dev/dl](https://go.dev/dl). Then:
+
+```sh
+go install github.com/AgentiLoop/AgentiLoopGo/cmd/agentiloop@latest
+```
+
+or from a clone:
+
+```sh
+git clone https://github.com/AgentiLoop/AgentiLoopGo.git
+cd AgentiLoopGo
+go install ./cmd/agentiloop
+```
+
+This builds the program and puts an `agentiloop` command on your PATH, in `~/go/bin` (`%USERPROFILE%\go\bin` on Windows). No C compiler is needed. The setup wizard runs on first launch exactly as described in [step 3](#3-run-the-setup-wizard).
+
+> **Not installing?** Everything in this README also works from inside the repo folder. Wherever you see `agentiloop <options>`, type `go run ./cmd/agentiloop <options>` instead.
 
 ### Build and test
 

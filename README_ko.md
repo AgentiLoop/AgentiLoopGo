@@ -1,4 +1,4 @@
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_ko.svg" width="900" alt="Sidrune AI, 실버 스폰서: GPT, Claude 및 기타 주요 AI 모델을 하나의 API로. 가입하고 $3 API 크레딧 받기." /></a>
+<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_ko.svg" width="900" alt="Sidrune AI, 실버 스폰서: GPT, Claude 및 기타 주요 AI 모델을 하나의 API로. 가입하고 $3 API 크레딧 받기." /></a>
 
 # AgentiLoopGo
 
@@ -30,7 +30,17 @@ Go로 작성되었고 macOS, Linux, Windows에서 실행돼요. [AgentiLoopCLI](
 
 AgentiLoop Agent!로 만들었어요. 저희가 정성껏 키운 아이예요. macOS, Linux, Windows용 사전 빌드된 바이너리는 [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases) 페이지에 있고, Go로 소스에서 직접 컴파일할 수도 있어요.
 
-<img src="docs/pong.png" width="900" alt="AgentiLoop가 프롬프트 하나로 SwiftUI Atari 스타일 Pong 게임을 작성, 빌드, 실행하는 모습. 실시간 diff와 실행 중인 게임 창" />
+<img src="docs/pong.png" width="900" alt="AgentiLoop가 프롬프트 하나로 SwiftUI Atari 스타일 Pong 게임을 작성, 빌드, 실행하는 모습. 실시간 diff와 실행 중인 게임 창" />
+
+---
+
+## ⚡ 첫 실행: 설정 마법사가 모두 해 줘요
+
+직접 설정할 것은 아무것도 없어요. `agentiloop`를 처음 실행하면 내장 설정 마법사가 알아서 시작돼요. 어떤 프로바이더를 쓸지 (Claude, OpenAI, Ollama / LM Studio 또는 oMLX) 묻고, API 키를 받고 (입력은 숨겨져요), 키가 동작하는지 확인하고, 모델을 고르게 한 뒤 모든 것을 `~/.agentiloop`에 저장해요. 1분 정도 걸리고, 설정 파일도 `export` 줄도 필요 없어요.
+
+<img src="docs/setup-wizard-tui.png" width="900" alt="전체 화면 TUI 안에서 실행되는 설정 마법사: 프로바이더, 숨겨진 API 키, 연결 확인, 모델 목록, 키 저장 위치, 그리고 첫 프롬프트" />
+
+`agentiloop --setup`으로 언제든 다시 실행할 수 있어요 (전체 화면 버전은 `--tui`를 붙이거나, 세션 안에서 `/setup`을 입력하세요). `agentiloop --reset`은 모든 것을 잊고 처음 상태에서 시작해요. 명령줄 프로그램을 설치해 본 적이 없으신가요? 아래 [처음이신가요?](#-처음이신가요-5분-만에-시작하기)를 순서대로 따라 해 보세요.
 
 ---
 
@@ -60,7 +70,7 @@ tar xzf agentiloop-macos-arm64.tar.gz
 mkdir -p ~/.local/bin && mv agentiloop-macos-arm64/agentiloop ~/.local/bin/
 ```
 
-이렇게 하면 프로그램이 홈 디렉터리 안의 폴더인 `~/.local/bin`에 들어가요. 3단계에서 터미널이 그곳을 찾도록 설정해요.
+이렇게 하면 프로그램이 홈 디렉터리 안의 폴더인 `~/.local/bin`에 들어가요. 3단계의 설정 마법사가 터미널이 그곳을 찾도록 설정해 주겠다고 제안해요.
 
 **Windows.** **PowerShell**을 열고 (시작 메뉴 → "PowerShell" 입력) 다음을 붙여 넣으세요:
 
@@ -85,84 +95,99 @@ AgentiLoop는 에이전트예요. "두뇌" 역할은 여기에 연결하는 AI �
 
 키를 안전한 곳에 복사해 두세요. 다음 단계에서 붙여 넣을 거예요.
 
-### 3. 셸 프로필에 설정 저장하기
+### 3. 설정 마법사 실행하기
 
-**셸 프로필**은 터미널이 새 창을 열 때마다 읽는 작은 텍스트 파일이에요. 여기에 설정을 넣어 두면 이 작업은 한 번만 하면 돼요. 이 단계를 건너뛰면 새 터미널을 열 때마다 키를 다시 입력해야 해요. 사람들이 막히는 가장 흔한 이유예요.
+파일을 편집하거나 `export` 명령어를 입력할 필요가 없어요. AgentiLoop에는 몇 가지 질문을 하고 키를 대신 저장해 주는 내장 설정 마법사가 있어요.
 
-**어떤 파일인가요?**
-
-| 시스템 | 셸 (기본값) | 프로필 파일 |
-|---|---|---|
-| macOS (Catalina 10.15 이상) | zsh | `~/.zshrc` |
-| 대부분의 Linux 배포판 | bash | `~/.bashrc` |
-| zsh를 쓰는 Linux 또는 Mac | zsh | `~/.zshrc` |
-| fish 셸 | fish | `~/.config/fish/config.fish` |
-| Windows | PowerShell | 필요 없음, 아래 참고 |
-
-어떤 셸을 쓰는지 모르겠다면 `echo $SHELL`을 실행해 보세요. `~`는 홈 폴더를 뜻하므로 `~/.zshrc`는 예를 들어 `/Users/you/.zshrc`예요. 점으로 시작하는 파일은 Finder나 파일 탐색기에서 숨겨져 있는데, 이건 정상이에요.
-
-**파일을 여세요.** 다음 중 하나를 사용하세요 (파일이 아직 없으면 새로 만들어져요):
+`~/.local/bin`이 아직 PATH에 없으므로, 이번 한 번만 전체 경로로 시작하세요 (Windows에서는 1단계에서 이미 PATH를 설정했으니 그냥 `agentiloop`를 입력하세요):
 
 ```sh
-nano ~/.zshrc                        # 어디서나 동작해요, 터미널 안에서 바로 편집
-touch ~/.zshrc && open -e ~/.zshrc   # macOS: 텍스트 편집기로 열어요
+~/.local/bin/agentiloop
 ```
 
-(bash를 쓰는 Linux: `~/.zshrc` 대신 `~/.bashrc`를 사용하세요.)
+처음에 아직 키가 설정되어 있지 않으면 마법사가 알아서 시작돼요. 1분 정도 걸리고 다섯 가지를 물어봐요:
 
-**맨 아래에 다음 줄을 추가하세요.** 필요한 키 줄만 남기고, 따옴표 사이에 실제 키를 붙여 넣으세요:
+1. **어떤 프로바이더** — Claude, OpenAI, 로컬 OpenAI 호환 서버 (Ollama, LM Studio, …) 또는 oMLX. 번호를 입력하세요.
+2. **API 키** — 입력은 숨겨져서 화면에 아무것도 표시되지 않아요. 로컬 서버에는 보통 필요 없고, 같은 Mac의 oMLX라면 마법사가 oMLX 자체 설정에서 키를 읽어 오므로 묻지도 않아요.
+3. **연결 확인** — 마법사가 바로 프로바이더와 통신해요. 키가 틀렸으면 알려 주고 다시 시도할 수 있게 해 줘요. 성공하기 전까지는 아무것도 저장되지 않아요.
+4. **어떤 모델** — 프로바이더가 돌려준 목록에서 하나를 고르거나, Enter를 눌러 기본값을 사용하세요. 나중에 `/model`로 언제든 바꿀 수 있어요.
+5. **키를 어디에 보관할지** — Enter를 눌러 기본값인 `~/.agentiloop/env`를 사용하세요. AgentiLoop만 읽는 비공개 파일이에요. (키를 셸이나 macOS 키체인에도 두고 싶은 분들을 위한 다른 선택지는 빠른 시작의 [고급: 키를 직접 설정하기](#2단계-모델-연결하기)에서 다뤄요.)
 
-```sh
-# AgentiLoop
-export PATH="$HOME/.local/bin:$PATH"
+마지막으로 마법사는 `~/.local/bin`이 PATH에 없다는 것을 알아채고 추가할지 물어봐요. **Enter** (예)를 누르세요. 그러면 `All set`이라고 표시되고 프롬프트로 이어져요. 일반 터미널에서 Claude를 선택하고 기본값을 그대로 받아들인 전체 실행 과정은 이렇게 보여요 (모델 목록은 다를 수 있어요):
 
-export ANTHROPIC_API_KEY="sk-ant-paste-your-key-here"          # Claude
-# export OPENAI_API_KEY="sk-paste-your-key-here"               # OpenAI
-# export OPENAI_BASE_URL="http://localhost:11434/v1"           # Ollama (키 불필요)
+```text
+$ ~/.local/bin/agentiloop
+Welcome to AgentiLoop! Let's set things up (about a minute).
+Settings are kept in /Users/you/.agentiloop. Run `agentiloop --setup` or `/setup` to redo this, `agentiloop --reset` to start over.
+
+Which model provider do you want to use?
+  1  Claude (Anthropic) — API key from console.anthropic.com
+  2  OpenAI — API key from platform.openai.com
+  3  Ollama, LM Studio or another OpenAI-compatible server (local, usually no key)
+  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)
+Provider [1-4, default 1]: 1
+Anthropic API key (starts with sk-ant-, input hidden):
+Checking the connection…
+Connected (8 model(s) available).
+
+Pick a model (change it any time with /model):
+   1  claude-sonnet-5  (default)
+   2  claude-…
+   3  claude-…
+   …
+Model [1-8, an id, or Enter for claude-sonnet-5]:
+
+Where should the credential be saved?
+  1  /Users/you/.agentiloop/env (recommended; only agentiloop reads it, file mode 600)
+  2  Also add it to /Users/you/.zshrc so other tools in your terminal see it
+  3  macOS Keychain, with a line in /Users/you/.zshrc that reads it (nothing stored in plain text)
+Save to [1-3, default 1]:
+saved to /Users/you/.agentiloop/env
+
+`/Users/you/.local/bin` is not on your PATH, so `agentiloop` only works with its full path.
+Add it to PATH in /Users/you/.zshrc? [Y/n]
+updated /Users/you/.zshrc (between `# >>> agentiloop >>>` and `# <<< agentiloop <<<`); it applies to new terminals
+
+All set: anthropic / claude-sonnet-5. Type a request at the prompt, /help for commands, /exit to leave.
 ```
 
-**저장하고 닫으세요.** nano에서는 **Ctrl-O**, **Enter**, 그다음 **Ctrl-X**. 텍스트 편집기에서는 **⌘S**를 누른 뒤 창을 닫으세요.
+여기서 바로 대화를 시작해도 되고, `/exit`를 입력하고 4단계로 넘어가도 돼요. 이제부터는 그냥 `agentiloop`만 입력하면 바로 프롬프트로 시작돼요.
 
-**불러오세요.** 새 터미널 창을 열거나, 다음을 실행하세요:
+Claude에는 일반 API 키 (`sk-ant-api…`)나 Claude Code 토큰 (`sk-ant-oat01-…`, `claude setup-token`으로 받을 수 있어요) 중 어느 것이든 붙여 넣을 수 있어요. AgentiLoop가 어떤 종류인지 알아서 감지해요. 3번 (Ollama, LM Studio, …)을 선택했다면 마법사가 서버 URL도 묻고 기본값으로 `http://localhost:11434/v1`을 제시하므로, 로컬 Ollama라면 Enter만 누르면 돼요.
 
-```sh
-source ~/.zshrc
+**같은 마법사, 전체 화면으로.** 마법사는 사용 중인 인터페이스 안에서 실행돼요. `--tui`로 시작하면 같은 질문이 전체 화면 인터페이스 안에 나타나고, 끝나면 이미 프롬프트에 있어요:
+
+<img src="docs/setup-wizard-tui.png" width="900" alt="전체 화면 TUI 안에서 실행되는 설정 마법사: 프로바이더, 숨겨진 API 키, 연결 확인, 모델 목록, 키 저장 위치, 그리고 첫 프롬프트" />
+
+**언제든 다시 실행하거나 다시 하기:**
+
+```bash
+agentiloop --setup          # 일반 터미널에서 마법사
+agentiloop --setup --tui    # 전체 화면 TUI 안에서 마법사 (스크린샷처럼)
+/setup                      # 실행 중인 세션 안에서 (REPL 또는 TUI)
+agentiloop --reset          # 모든 것을 잊고 처음 상태에서 시작
 ```
 
-**fish**는 문법이 달라요. 다음 내용을 `~/.config/fish/config.fish`에 넣으세요:
+> 🔒 **키는 비밀로 지켜 주세요.** `~/.agentiloop/env`는 여러분만 읽을 수 있어요. 키를 채팅에 붙여 넣거나 git에 커밋하지 마세요. Mac에서는 “Where should the credential be saved?” 질문에서 3번을 고르면 대신 키체인에 저장되므로, 평문으로 디스크에 남지 않아요.
 
-```fish
-fish_add_path $HOME/.local/bin
-set -gx ANTHROPIC_API_KEY "sk-ant-paste-your-key-here"
-```
+환경 변수로 키를 직접 관리하고 싶으신가요? 그것도 가능하지만 고급 방법이에요. 빠른 시작의 [고급: 키를 직접 설정하기](#2단계-모델-연결하기)를 참고하세요.
 
-**Windows (PowerShell).** Windows에는 이 용도로 편집할 프로필 파일이 없어요. 대신 키를 사용자 환경 변수로 저장하세요 (설정 마법사에서 2번을 고르면 같은 일을 해요):
-
-```powershell
-setx ANTHROPIC_API_KEY "sk-ant-paste-your-key-here"
-# 또는: setx OPENAI_API_KEY "sk-..."   /   setx OPENAI_BASE_URL "http://localhost:11434/v1"
-```
-
-그런 다음 **PowerShell을 닫고 새 창을 여세요**. `setx`는 실행한 창 자체에는 적용되지 않아요. 마우스로도 할 수 있어요: 시작 → *Edit environment variables for your account* → *New…*.
-
-> 🔒 **키는 비밀로 지켜 주세요.** 프로필 파일을 git에 커밋하거나 키를 채팅에 붙여 넣지 마세요. Mac에서는 대신 키체인에 보관할 수도 있어요. [빠른 시작의 2단계](#2단계-모델-연결하기)를 참고하세요.
 
 ### 4. 잘 동작하는지 확인하기
+
+마법사가 바꾼 PATH가 적용되도록 **새 터미널 창을 여세요** (Windows: 새 PowerShell 창). 그런 다음:
 
 ```sh
 agentiloop --version
 ```
 
-`agentiloop 0.0.6`이 보여야 해요. 이제 키가 불러와졌는지 확인하세요:
+`agentiloop 0.0.6`이 보여야 해요. 이제 옵션 없이 실행하세요:
 
 ```sh
-echo $ANTHROPIC_API_KEY | cut -c1-10    # macOS / Linux: sk-ant-...가 출력되어야 해요
-```
-```powershell
-$env:ANTHROPIC_API_KEY.Substring(0,10)  # Windows PowerShell
+agentiloop
 ```
 
-아무것도 출력되지 않으면 3단계로 돌아가세요. 키가 아직 불러와지지 않은 거예요.
+바로 프롬프트로 이어져야 해요. 대신 마법사가 다시 시작되면 키가 저장되지 않은 거예요. 3단계를 한 번 더 진행하세요.
 
 ### 5. 첫 번째 세션
 
@@ -176,7 +201,7 @@ cd ~/agentiloop-test
 agentiloop --tui
 ```
 
-**Ollama**를 쓰시나요? 프로바이더와 pull 받은 모델을 지정하세요: `agentiloop -p openai -m qwen2.5-coder --tui`.
+**Ollama**를 쓰시나요? 마법사가 서버와 선택한 모델을 이미 기억하고 있어요. pull 받은 다른 모델로 바꾸려면 세션 안에서 `/model`을 입력하세요.
 
 이제 원하는 것을 평범한 말로 입력하고 **Enter**를 누르기만 하면 돼요. 처음 시도해 보기 좋은 프롬프트:
 
@@ -205,14 +230,14 @@ agentiloop "explain what this project does"
 |---|---|---|
 | `read_file` | 파일을 읽어요 (줄 번호 포함) | 아니요 |
 | `list_dir` | 폴더 안의 파일을 나열해요 | 아니요 |
-| `glob` | 이름 패턴으로 파일을 찾아요 (`*.rs`, `src/**/*.go`) | 아니요 |
-| `grep` | 정규식으로 파일 내용을 검색해요 | 아니요 |
-| `web_fetch` | 웹 페이지나 API 응답을 일반 텍스트로 가져와요 | **예** |
-| `todo_write` | 여러 단계 작업을 위해 모델이 자신의 체크리스트를 관리해요 | 아니요 |
+| `glob` | 이름 패턴으로 파일을 찾아요 (`*.rs`, `src/**/*.go`) | 아니요 |
+| `grep` | 정규식으로 파일 내용을 검색해요 | 아니요 |
+| `web_fetch` | 웹 페이지나 API 응답을 일반 텍스트로 가져와요 | **예** |
+| `todo_write` | 여러 단계 작업을 위해 모델이 자신의 체크리스트를 관리해요 | 아니요 |
 | `write_file` | 새 파일을 만들거나 기존 파일을 덮어써요 | **예** |
 | `edit_file` | 파일 안의 특정 텍스트를 정확히 바꿔요 | **예** |
 | `bash` | 테스트, 빌드, `git` 같은 셸 명령어를 실행해요 (Mac/Linux에서는 `sh -c`, Windows에서는 `cmd /C`) | **예** |
-| `task` | 독립된 작업(탐색, 조사)을 위해 빈 대화로 서브 에이전트를 시작하고 그 답변만 가져와요. 같은 도구를 쓰고 같은 질문을 해요. 서브 에이전트는 또 다른 서브 에이전트를 시작할 수 없어요 | 아니요 (서브 에이전트의 도구 호출은 평소처럼 물어봐요) |
+| `task` | 독립된 작업(탐색, 조사)을 위해 빈 대화로 서브 에이전트를 시작하고 그 답변만 가져와요. 같은 도구를 쓰고 같은 질문을 해요. 서브 에이전트는 또 다른 서브 에이전트를 시작할 수 없어요 | 아니요 (서브 에이전트의 도구 호출은 평소처럼 물어봐요) |
 
 웹 검색, 데이터베이스, GitHub 같은 도구가 더 필요하신가요? MCP 서버를 추가하세요. [MCP로 도구 추가하기](#mcp로-도구-추가하기-선택-사항)를 참고하세요.
 
@@ -277,11 +302,11 @@ Options:
 
 | 보이는 내용 | 해결 방법 |
 |---|---|
-| `command not found: agentiloop` | `~/.local/bin`이 PATH에 없어요. 3단계의 `export PATH=...` 줄을 추가한 다음 새 터미널을 여세요. Windows에서는 새 PowerShell 창을 여세요 |
-| `Error: no provider credentials found` | 불러온 키가 없어요. 3단계를 다시 한 다음 4단계로 확인하세요 |
+| `command not found: agentiloop` | `~/.local/bin`이 PATH에 없어요. 먼저 새 터미널 창을 여세요. 그래도 안 되면 `~/.local/bin/agentiloop --setup`을 실행하고, PATH에 추가할지 물어보면 예라고 답하세요. Windows에서는 새 PowerShell 창을 여세요 |
+| `Error: no provider credentials found` | 저장된 키가 없어요. `agentiloop --setup`을 실행한 다음 (3단계), 4단계로 확인하세요 |
 | macOS: *"agentiloop" cannot be opened* / *unidentified developer* | `curl` 대신 브라우저로 다운로드하면 이런 일이 생겨요. `xattr -d com.apple.quarantine ~/.local/bin/agentiloop`를 실행하세요 |
 | Windows: *Windows protected your PC* | **More info** → **Run anyway**를 클릭하세요 |
-| `401` / `invalid x-api-key` / 인증 오류 | 키가 틀렸거나 공백 또는 따옴표가 들어 있어요. 다시 복사하고 프로필의 해당 줄을 확인하세요 |
+| `401` / `invalid x-api-key` / 인증 오류 | 키가 틀렸거나 공백 또는 따옴표가 섞여서 붙여 넣어졌어요. 다시 복사하고 `agentiloop --setup`을 실행해서 새로 입력하세요 |
 | Ollama: model not found | `ollama list`를 실행하고 정확한 이름을 `-m`으로 전달하세요 |
 | 계속 예전 모델이나 프로바이더를 사용해요 | 마지막 선택을 기억하기 때문이에요. `-p` / `-m`을 전달해서 바꾸거나, `agentiloop --reset`을 실행해서 처음부터 다시 시작하세요 |
 
@@ -317,32 +342,21 @@ go install ./cmd/agentiloop
 
 ### 2단계: 모델 연결하기
 
-AgentiLoop는 대화할 모델이 필요해요.
+AgentiLoop는 대화할 모델이 필요해요. **이를 위해 환경 변수를 설정할 필요는 없어요**: 그냥 `agentiloop`를 실행하면 내장 설정 마법사가 몇 가지 질문을 하고 모든 것을 대신 저장해 줘요. 전체 실행 과정이 담긴 단계별 안내는 위의 [3. 설정 마법사 실행하기](#3-설정-마법사-실행하기)를 참고하세요.
 
-**가장 쉬운 방법:** 그냥 `agentiloop`를 실행하세요. 키가 설정되지 않은 컴퓨터에서는 짧은 마법사가 시작돼요. 어떤 프로바이더를 쓸지 묻고, 키를 받고 (입력은 숨겨져요), 연결을 확인하고, 모델을 고르게 한 뒤, 키를 `~/.agentiloop/env`에 저장해요 (AgentiLoop만 읽어요). `agentiloop --setup`으로 언제든 다시 실행할 수 있고, `agentiloop --reset`은 모든 것을 처음 상태로 되돌려요.
+<details>
+<summary><b>고급: 키를 직접 설정하기</b> (마법사가 잘 동작했다면 건너뛰세요)</summary>
 
-<img src="docs/setup-wizard-tui.png" width="900" alt="전체 화면 TUI 안에서 실행되는 설정 마법사: 프로바이더, 숨겨진 API 키, 연결 확인, 모델 목록, 키 저장 위치, 그리고 첫 프롬프트" />
+키를 직접 관리하고 싶거나, 아무도 마법사에 답할 수 없는 스크립트나 CI에서 AgentiLoop를 실행한다면, 다음 환경 변수 중 하나를 설정하세요. AgentiLoop는 묻지 않고 그 값을 사용해요:
 
-```bash
-agentiloop --setup          # 일반 터미널에서 마법사
-agentiloop --setup --tui    # 전체 화면 TUI 안에서 마법사 (스크린샷처럼)
-/setup                      # 실행 중인 세션에서 다시 실행 (REPL 또는 TUI)
-```
-
-마법사는 사용 중인 인터페이스 안에서 실행돼요. `agentiloop --setup`은 일반 터미널에서 질문하고, `agentiloop --setup --tui`(또는 기억된 TUI)는 스크린샷처럼 전체 화면 안에서 질문한 뒤 끝나면 바로 프롬프트로 이어져요. 세션 중에는 `/setup`이 양쪽에서 같은 일을 해요.
-
-**직접 하기:** 대신 터미널에서 다음 중 하나를 설정하세요:
-
-| 사용하고 싶은 것… | 할 일 |
+| 사용하고 싶은 것… | 설정할 것 |
 |---|---|
 | **Claude** (Anthropic) | `export ANTHROPIC_API_KEY=sk-ant-...` |
 | **OpenAI** | `export OPENAI_API_KEY=sk-...` |
-| **Ollama, LM Studio**, 또는 모든 OpenAI 호환 서버 | `export OPENAI_BASE_URL=http://localhost:11434/v1` (여러분의 서버 주소를 사용하세요. 로컬 서버에는 키가 필요 없어요) |
-| **oMLX** (Apple Silicon의 로컬 모델) | 보통은 아무것도 안 해도 돼요. oMLX를 시작한 다음 `-p omlx`로 AgentiLoop를 실행하세요 (아래 참고) |
+| **Ollama, LM Studio**, 또는 모든 OpenAI 호환 서버 | `export OPENAI_BASE_URL=http://localhost:11434/v1` (여러분의 서버 주소. 로컬 서버에는 키가 필요 없어요) |
+| **oMLX** (Apple Silicon의 로컬 모델) | 보통은 아무것도 안 해도 돼요. oMLX를 시작한 다음 `-p omlx`로 AgentiLoop를 실행하세요 |
 
-Claude에는 일반 API 키 (`sk-ant-api…`) 또는 Claude Code 토큰 (`sk-ant-oat01-…`, `claude setup-token`으로 받을 수 있어요)을 사용할 수 있어요. AgentiLoop가 어떤 종류인지 알아서 감지해요.
-
-**oMLX 세부 사항.** oMLX가 같은 Mac에서 실행 중이면, AgentiLoop는 oMLX 자체의 설정 파일 (`~/.omlx/settings.json`)에서 서버 포트와 API 키를 읽어 오므로 아무것도 export할 필요가 없어요. oMLX가 다른 컴퓨터에서 실행 중이거나 그 설정을 덮어쓰고 싶다면 직접 export하세요:
+**oMLX 세부 사항.** oMLX가 같은 Mac에서 실행 중이면, AgentiLoop는 oMLX 자체의 설정 파일 (`~/.omlx/settings.json`)에서 서버 포트와 API 키를 읽어 와요. oMLX가 다른 컴퓨터에서 실행 중이거나 그 설정을 덮어쓰고 싶다면:
 
 ```sh
 export OMLX_BASE_URL=http://192.168.1.50:7777/v1   # oMLX 서버 주소 (localhost라면 OMLX_PORT=7777)
@@ -351,7 +365,7 @@ export OMLX_API_KEY=...                            # oMLX 설정에 있는 API �
 
 oMLX에서 API 키 검증이 꺼져 있다면 키가 필요 없어요.
 
-`export`는 입력한 터미널 탭에서만 유지돼요. 영구적으로 적용하려면 그 줄을 셸 프로필 (macOS에서는 `~/.zshrc`)에 추가하세요. Mac에서는 키를 파일 대신 키체인에 보관할 수 있어요:
+`export`는 입력한 터미널 탭에서만 유지돼요. 영구적으로 적용하려면 그 줄을 셸 프로필 (macOS에서는 `~/.zshrc`)에 추가해야 하는데, 마법사의 **"Also add it to ~/.zshrc"** 선택지가 바로 이 일을 대신해 줘요. 마찬가지로 마법사의 **"macOS Keychain"** 선택지는 다음 과정을 손대지 않고 해 주는 버전이에요:
 
 ```sh
 # 한 번만: 키를 키체인에 저장해요
@@ -360,6 +374,8 @@ security add-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w "sk-ant-..."
 # ~/.zshrc에 추가: 새 터미널마다 불러와요
 export ANTHROPIC_API_KEY="$(security find-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w 2>/dev/null)"
 ```
+
+</details>
 
 ### 3단계: 실행하기
 
@@ -389,13 +405,13 @@ agentiloop --tui
 | **채팅** (한 줄씩) | `agentiloop` | 단순한 터미널, 또는 일반 텍스트를 선호할 때 |
 | **원샷** | `agentiloop "explain this project"` | 질문 하나: 답하고 나서 종료해요. 스크립트에서 편리해요 |
 
-TUI의 키: **Enter** 전송 · **↑ / ↓** 이전 프롬프트 탐색 · **PgUp / PgDn** 또는 마우스 휠로 스크롤 · **Ctrl-F** *변경된 파일* 창 표시/숨기기 (창 위에서 휠은 창을 스크롤, 왼쪽 가장자리를 끌어 너비 조절) · **Esc** 실행 중인 요청 중지 (세션은 유지) · **Ctrl-U** 줄 지우기 · **Ctrl-C** 종료.
+TUI의 키: **Enter** 전송 · **↑ / ↓** 이전 프롬프트 탐색 · **PgUp / PgDn** 또는 마우스 휠로 스크롤 · **Ctrl-F** *변경된 파일* 창 표시/숨기기 (창 위에서 휠은 창을 스크롤, 왼쪽 가장자리를 끌어 너비 조절) · **Esc** 실행 중인 요청 중지 (세션은 유지) · **Ctrl-U** 줄 지우기 · **Ctrl-C** 종료.
 
 ---
 
-## @로 파일 언급하기
+## @로 파일 언급하기
 
-프롬프트 어디에서든 `@` 뒤에 경로를 쓰면 AgentiLoop가 그 파일을 모델이 받는 내용에 붙여 줘요. `@src/main.rs 설명해 줘`는 내 문장과 함께 줄 번호가 붙은 파일 본문을 보내요. 폴더(`@src`)는 목록을 붙여요. 경로는 프로젝트 폴더 기준 상대 경로예요 (절대 경로나 `~/…`도 돼요). 아무것도 가리키지 않는 단어는 그대로 두니까 이메일 주소도 안전해요. 파일은 64 KB, 폴더는 200개 항목에서 잘리고, 📎 줄이 무엇을 붙였는지 보여줘요. TUI, 채팅, 원샷 프롬프트 모두에서 돼요.
+프롬프트 어디에서든 `@` 뒤에 경로를 쓰면 AgentiLoop가 그 파일을 모델이 받는 내용에 붙여 줘요. `@src/main.rs 설명해 줘`는 내 문장과 함께 줄 번호가 붙은 파일 본문을 보내요. 폴더(`@src`)는 목록을 붙여요. 경로는 프로젝트 폴더 기준 상대 경로예요 (절대 경로나 `~/…`도 돼요). 아무것도 가리키지 않는 단어는 그대로 두니까 이메일 주소도 안전해요. 파일은 64 KB, 폴더는 200개 항목에서 잘리고, 📎 줄이 무엇을 붙였는지 보여줘요. TUI, 채팅, 원샷 프롬프트 모두에서 돼요.
 
 
 ---
@@ -440,7 +456,7 @@ agentiloop --new          # 새 대화 시작 (이전 대화는 저장된 채로
 
 - `--yes`: 허락 확인을 건너뛰는 것은 매번 신중하게 선택해야 하기 때문이에요
 - `--no-mcp`, `-C`, 그리고 원샷 프롬프트
-- API 키: 이것들은 셸 프로필에 그대로 두세요
+- API 키: 이것들은 `~/.agentiloop/env` (마법사가 써요) 또는 셸 환경에 있고, `settings.json`에는 절대 저장되지 않아요
 
 모든 것을 잊게 하려면 `agentiloop --reset`을 실행하세요.
 
@@ -460,13 +476,13 @@ agentiloop --new          # 새 대화 시작 (이전 대화는 저장된 채로
 | `-r, --resume <id>` | | 특정 대화를 다시 열어요 (id는 `/sessions`로 찾을 수 있어요) |
 | `-C, --cwd <folder>` | | 지금 있는 폴더가 아닌 다른 폴더에서 작업해요 |
 | `--yes` | `AGENTILOOP_YES` | 도구를 실행하기 전에 묻지 않아요. ⚠️ 신뢰할 수 있는 자동화 용도로만 사용하세요 |
-| `--allow-tool <name>` | | 이 도구를 묻지 않고 실행해요. 옵션을 반복하거나 쉼표로 구분해요. `mcp_*`는 접두사와 일치해요. `--yes` 없이 쓰는 CI에 좋아요 |
-| `--deny-tool <name>` | | 이 도구를 절대 실행하지 않아요. 모델에게는 거부됐다고 알려 줘요. `--allow-tool`과 `--yes`보다 우선해요 |
+| `--allow-tool <name>` | | 이 도구를 묻지 않고 실행해요. 옵션을 반복하거나 쉼표로 구분해요. `mcp_*`는 접두사와 일치해요. `--yes` 없이 쓰는 CI에 좋아요 |
+| `--deny-tool <name>` | | 이 도구를 절대 실행하지 않아요. 모델에게는 거부됐다고 알려 줘요. `--allow-tool`과 `--yes`보다 우선해요 |
 | `--plan` | `AGENTILOOP_PLAN` | 플랜 모드: 무언가를 바꾸는 모든 도구 (`write_file`, `edit_file`, `bash`, `task`, 읽기 전용이 아닌 MCP 도구) 를 끈 채로 시작해요. 모델은 읽고 검색한 뒤 작업 대신 번호가 매겨진 계획으로 답해요. 세션 중에는 `/plan`으로 끄거나 켤 수 있어요 |
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | MCP 서버를 시작하지 않아요 (아래 참고) |
-| `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | 이번 실행에만 시스템 프롬프트 끝에 덧붙이는 텍스트 (저장되지 않아요) |
-| `--json` | | 원샷 프롬프트에서 답변을 JSON 객체 하나(`result`, `is_error`, `session_id`, `provider`, `model`, `usage`)로 stdout에 출력해요. 도구 활동은 stderr에 남아요 |
-| `--stream-json` | | 원샷 프롬프트에서: 이벤트가 일어날 때마다 stdout에 한 줄에 JSON 객체 하나씩 출력하고 (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), 마지막에 `--json`과 같은 결과 객체를 `"type": "result"`와 함께 출력해요. 그 밖에는 아무것도 출력하지 않아요. 진행 상황을 보고 싶은 편집기와 스크립트용 |
+| `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | 이번 실행에만 시스템 프롬프트 끝에 덧붙이는 텍스트 (저장되지 않아요) |
+| `--json` | | 원샷 프롬프트에서 답변을 JSON 객체 하나(`result`, `is_error`, `session_id`, `provider`, `model`, `usage`)로 stdout에 출력해요. 도구 활동은 stderr에 남아요 |
+| `--stream-json` | | 원샷 프롬프트에서: 이벤트가 일어날 때마다 stdout에 한 줄에 JSON 객체 하나씩 출력하고 (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), 마지막에 `--json`과 같은 결과 객체를 `"type": "result"`와 함께 출력해요. 그 밖에는 아무것도 출력하지 않아요. 진행 상황을 보고 싶은 편집기와 스크립트용 |
 | `--setup` | | 첫 설정 마법사를 다시 실행해요 (프로바이더, 키, 모델). `--tui`와 함께 쓰면 전체 화면 안에서 실행돼요 |
 | `--reset` | | 처음 상태로: `~/.agentiloop`, 셸 프로파일의 agentiloop 블록, 마법사가 만든 키체인 항목 (Windows에서는 마법사가 설정한 사용자 환경 변수)을 삭제해요. 직접 작성한 `export` 줄은 주석 처리만 되고, 그것도 동의할 때만이에요. `--yes`를 붙이면 질문을 건너뛰어요 |
 | `--max-turns <n>` | | 요청 하나당 에이전트가 수행할 수 있는 최대 단계 수 (기본값 50) |
@@ -503,16 +519,16 @@ TUI나 채팅의 프롬프트에서 다음을 입력하세요:
 | `/sessions` | 저장된 대화를 최신순으로 나열해요 |
 | `/resume <n or id>` | 그중 하나를 다시 열어요 |
 | `/clear` | 대화를 지우고 새 대화를 시작해요 |
-| `/undo` | 마지막 프롬프트에서 에이전트가 바꾼 파일 변경을 되돌려요 (`bash` 명령으로 바뀐 것은 되돌리지 않아요) |
-| `/todos` | 모델의 현재 작업 체크리스트를 보여 줘요 |
-| `/diff` | git 작업 트리에서 바뀐 내용을 보여 줘요 (상태와 diff, 200줄에서 잘라요) |
-| `/commands` | 나만의 명령: `.agentiloop/commands/<name>.md` (프로젝트) 또는 `~/.agentiloop/commands/<name>.md` 파일이 `/<name>`이 되어 파일 내용을 프롬프트로 보내요 (`$ARGUMENTS`는 뒤에 입력한 내용으로, `$1`~`$9`는 각 단어로 바뀌어요). 목록을 보여 줘요 |
-| `/hooks` | `.agentiloop/hooks.json`에서 읽어 온 훅을 보여줘요 ([훅](#훅-도구-호출-전후에-내-명령-실행하기) 참고) |
+| `/undo` | 마지막 프롬프트에서 에이전트가 바꾼 파일 변경을 되돌려요 (`bash` 명령으로 바뀐 것은 되돌리지 않아요) |
+| `/todos` | 모델의 현재 작업 체크리스트를 보여 줘요 |
+| `/diff` | git 작업 트리에서 바뀐 내용을 보여 줘요 (상태와 diff, 200줄에서 잘라요) |
+| `/commands` | 나만의 명령: `.agentiloop/commands/<name>.md` (프로젝트) 또는 `~/.agentiloop/commands/<name>.md` 파일이 `/<name>`이 되어 파일 내용을 프롬프트로 보내요 (`$ARGUMENTS`는 뒤에 입력한 내용으로, `$1`~`$9`는 각 단어로 바뀌어요). 목록을 보여 줘요 |
+| `/hooks` | `.agentiloop/hooks.json`에서 읽어 온 훅을 보여줘요 ([훅](#훅-도구-호출-전후에-내-명령-실행하기) 참고) |
 | `/plan [on\|off]` | 플랜 모드를 켜거나 꺼요 (인수가 없으면 전환). 켜져 있는 동안 무언가를 바꾸는 도구는 실행을 거부하고 모델은 계획으로 답해요. TUI 상태 줄에 **PLAN**이 표시돼요 |
-| `/init` | 현재 프로젝트용 `AGENTS.md` 초안을 만들어요 (덮어쓰지 않아요) |
-| `/export [file]` | 대화를 Markdown 파일로 저장해요 (`/export notes.md`, 생략하면 프로젝트 폴더에 기본 이름으로 저장) |
+| `/init` | 현재 프로젝트용 `AGENTS.md` 초안을 만들어요 (덮어쓰지 않아요) |
+| `/export [file]` | 대화를 Markdown 파일로 저장해요 (`/export notes.md`, 생략하면 프로젝트 폴더에 기본 이름으로 저장) |
 | `/compact` | 지금 대화를 요약해서 공간을 확보해요 |
-| `/usage` | 시작 이후 사용한 토큰 수와 컨텍스트가 얼마나 찼는지 보여 줘요 |
+| `/usage` | 시작 이후 사용한 토큰 수와 컨텍스트가 얼마나 찼는지 보여 줘요 |
 | `/status` | 현재 상태: 폴더, 제공자, 모델과 그 한도, 세션, 플랜 모드, 도구 (그중 MCP에서 온 수), 훅, 지침 파일, 설정, 토큰 사용량 |
 | `/mcp` | 연결된 MCP 서버와 그 도구를 보여 줘요 |
 | `/help` | 이 명령어들을 나열해요 |
@@ -524,19 +540,19 @@ TUI나 채팅의 프롬프트에서 다음을 입력하세요:
 
 모델이 한 번에 읽을 수 있는 양에는 한계가 있어요. 대화가 커지면 (기본적으로 요청이 150,000 토큰에 도달하면), AgentiLoop는 모델에게 지금까지의 내용을 요약하게 하고 그 요약에서부터 이어 가요. 이때 📦 알림이 표시돼요. `/compact`는 원할 때 요약을 실행하고, `--compact-at 0`은 이 기능을 꺼요.
 
-**프롬프트 캐시 (Anthropic).** Anthropic에 보내는 요청은 시스템 프롬프트, 도구, 마지막 메시지를 캐시 가능으로 표시해서, 같은 대화의 다음 요청은 프롬프트 대부분을 다시 지불하지 않고 재사용해요 (캐시된 부분은 약 10분의 1 비용이고 답변도 더 빨리 시작돼요). 설정할 건 없어요. `/usage`가 캐시에서 읽고 쓴 토큰 수를 보여주고, `--json`은 `cache_read_tokens`와 `cache_write_tokens`로 알려줘요.
+**프롬프트 캐시 (Anthropic).** Anthropic에 보내는 요청은 시스템 프롬프트, 도구, 마지막 메시지를 캐시 가능으로 표시해서, 같은 대화의 다음 요청은 프롬프트 대부분을 다시 지불하지 않고 재사용해요 (캐시된 부분은 약 10분의 1 비용이고 답변도 더 빨리 시작돼요). 설정할 건 없어요. `/usage`가 캐시에서 읽고 쓴 토큰 수를 보여주고, `--json`은 `cache_read_tokens`와 `cache_write_tokens`로 알려줘요.
 
 ---
 
-## 프로젝트 지침
+## 프로젝트 지침
 
-프로젝트에 `AGENTS.md` (또는 `CLAUDE.md`) 파일을 두면 AgentiLoop가 시작할 때 읽고 따라요. 빌드 명령, 코드 스타일, 피해야 할 것 등을 적을 수 있어요. 현재 폴더에서 시작해 프로젝트 루트(`.git`이 있는 폴더)까지 상위 폴더를 차례로 찾아요. 개인용 `~/.agentiloop/AGENTS.md`는 모든 프로젝트에 적용되고, 프로젝트 파일은 그 뒤에 와서 우선해요. 파일은 32 KB에서 잘려요. `instructions: <경로>` 줄로 어떤 파일을 불러왔는지 알 수 있어요. `@경로`만 있는 줄(예: `@docs/style.md`)은 그것을 적은 파일 기준 상대 경로의 파일 내용으로 바뀌어요. 가져오기는 3단계까지 중첩할 수 있고, 없는 파일, 순환, 코드 블록 안의 줄은 그대로 둬요.
+프로젝트에 `AGENTS.md` (또는 `CLAUDE.md`) 파일을 두면 AgentiLoop가 시작할 때 읽고 따라요. 빌드 명령, 코드 스타일, 피해야 할 것 등을 적을 수 있어요. 현재 폴더에서 시작해 프로젝트 루트(`.git`이 있는 폴더)까지 상위 폴더를 차례로 찾아요. 개인용 `~/.agentiloop/AGENTS.md`는 모든 프로젝트에 적용되고, 프로젝트 파일은 그 뒤에 와서 우선해요. 파일은 32 KB에서 잘려요. `instructions: <경로>` 줄로 어떤 파일을 불러왔는지 알 수 있어요. `@경로`만 있는 줄(예: `@docs/style.md`)은 그것을 적은 파일 기준 상대 경로의 파일 내용으로 바뀌어요. 가져오기는 3단계까지 중첩할 수 있고, 없는 파일, 순환, 코드 블록 안의 줄은 그대로 둬요.
 
 ---
 
-## 훅: 도구 호출 전후에 내 명령 실행하기
+## 훅: 도구 호출 전후에 내 명령 실행하기
 
-훅은 정해진 시점에 AgentiLoop가 대신 실행해 주는 셸 명령이에요. 도구가 실행되기 전(`PreToolUse`), 실행된 후(`PostToolUse`), 에이전트가 요청을 끝냈을 때(`Stop`)에 동작해요. 프로젝트의 `.agentiloop/hooks.json`이나, 모든 프로젝트에 적용되는 `~/.agentiloop/hooks.json`에 넣으세요 (둘 다 읽어요):
+훅은 정해진 시점에 AgentiLoop가 대신 실행해 주는 셸 명령이에요. 도구가 실행되기 전(`PreToolUse`), 실행된 후(`PostToolUse`), 에이전트가 요청을 끝냈을 때(`Stop`)에 동작해요. 프로젝트의 `.agentiloop/hooks.json`이나, 모든 프로젝트에 적용되는 `~/.agentiloop/hooks.json`에 넣으세요 (둘 다 읽어요):
 
 ```json
 {
@@ -548,17 +564,17 @@ TUI나 채팅의 프롬프트에서 다음을 입력하세요:
 }
 ```
 
-- `matcher`는 훅이 적용될 도구를 `--allow-tool`과 같은 규칙으로 정해요 (이름, `mcp_*` 접두사, `*`). 생략하면 모든 도구에 적용돼요. `Stop` 훅은 무시해요.
-- 명령은 프로젝트 폴더에서 `sh -c`(Windows에서는 `cmd /C`)로 실행돼요. stdin으로 JSON 객체 하나를 받아요: `event`, `cwd`, `tool`, `input`. `PostToolUse`에는 `output`과 `is_error`가, `Stop`에는 `stop_reason`이 추가돼요. 환경 변수 `AGENTILOOP_HOOK_EVENT`와 `AGENTILOOP_TOOL`도 설정돼요.
-- **종료 코드 2는 모델에게 말하는 거예요.** 2로 끝난 `PreToolUse` 훅은 호출을 막고, stderr에 출력한 내용이 오류로 모델에 전달돼요. `PostToolUse` 훅이 2로 끝나면 stderr가 도구 결과에 덧붙어요. 다른 종료 코드는 무시돼요 (0이 아니면 로그에 남아요). 훅은 60초 후 강제 종료돼요.
-- `/hooks`로 읽어 온 훅을 볼 수 있어요. 깨진 파일은 시작할 때 알려 주고 건너뛰어요.
+- `matcher`는 훅이 적용될 도구를 `--allow-tool`과 같은 규칙으로 정해요 (이름, `mcp_*` 접두사, `*`). 생략하면 모든 도구에 적용돼요. `Stop` 훅은 무시해요.
+- 명령은 프로젝트 폴더에서 `sh -c`(Windows에서는 `cmd /C`)로 실행돼요. stdin으로 JSON 객체 하나를 받아요: `event`, `cwd`, `tool`, `input`. `PostToolUse`에는 `output`과 `is_error`가, `Stop`에는 `stop_reason`이 추가돼요. 환경 변수 `AGENTILOOP_HOOK_EVENT`와 `AGENTILOOP_TOOL`도 설정돼요.
+- **종료 코드 2는 모델에게 말하는 거예요.** 2로 끝난 `PreToolUse` 훅은 호출을 막고, stderr에 출력한 내용이 오류로 모델에 전달돼요. `PostToolUse` 훅이 2로 끝나면 stderr가 도구 결과에 덧붙어요. 다른 종료 코드는 무시돼요 (0이 아니면 로그에 남아요). 훅은 60초 후 강제 종료돼요.
+- `/hooks`로 읽어 온 훅을 볼 수 있어요. 깨진 파일은 시작할 때 알려 주고 건너뛰어요.
 
-예를 들어 이 `PreToolUse` 훅은 `bash`가 `git push`를 실행하지 못하게 해요:
+예를 들어 이 `PreToolUse` 훅은 `bash`가 `git push`를 실행하지 못하게 해요:
 
 ```sh
 #!/bin/sh
-# .agentiloop/check-command.sh — stdin은 호출의 JSON
-if grep -q 'git push' ; then echo "에이전트에서 git push는 허용되지 않아요" >&2; exit 2; fi
+# .agentiloop/check-command.sh — stdin은 호출의 JSON
+if grep -q 'git push' ; then echo "에이전트에서 git push는 허용되지 않아요" >&2; exit 2; fi
 ```
 
 ---
@@ -585,7 +601,7 @@ if grep -q 'git push' ; then echo "에이전트에서 git p
 - **도구 이름.** 각 서버의 도구는 에이전트에게 `mcp_<server>_<tool>` 형태로 보여요. 예: `mcp_Local_search`.
 - **비밀 값.** `${VAR}` (또는 `${VAR:-default}`)는 환경 변수에서 채워지므로, 키를 파일에 넣을 필요가 없어요.
 - **권한.** MCP 도구도 다른 도구처럼 허락을 구해요. 단, 서버가 해당 도구를 읽기 전용으로 표시한 경우는 예외예요.
-- **프롬프트.** 서버에 저장된 프롬프트는 `/mcp__<서버>__<프롬프트>` 슬래시 명령이 돼요 (예: `/mcp__Local__summarize 어떤 텍스트`). 명령 뒤의 단어가 프롬프트 인자에 순서대로 들어가요 (`이름=값`도 가능). 서버가 돌려준 텍스트가 여러분의 프롬프트로 전송돼요. `/mcp`로 목록을 볼 수 있어요.
+- **프롬프트.** 서버에 저장된 프롬프트는 `/mcp__<서버>__<프롬프트>` 슬래시 명령이 돼요 (예: `/mcp__Local__summarize 어떤 텍스트`). 명령 뒤의 단어가 프롬프트 인자에 순서대로 들어가요 (`이름=값`도 가능). 서버가 돌려준 텍스트가 여러분의 프롬프트로 전송돼요. `/mcp`로 목록을 볼 수 있어요.
 - **서버 끄기.** 서버 하나를 건너뛰려면 `"disabled": true`를 추가하고, 모두 건너뛰려면 `--no-mcp`로 실행하세요.
 - **안전.** 일반 `http://`는 localhost에서만 허용돼요. 원격 서버에는 `https://`가 필요해요.
 
@@ -603,7 +619,7 @@ if grep -q 'git push' ; then echo "에이전트에서 git p
 | `env` | 마법사가 쓴 키 (`KEY=value`, 파일 모드 600). 시작할 때 불러오며, 셸의 `export`가 우선해요 |
 | `sessions/` | 대화 기록, 대화마다 파일 하나 |
 | `mcp.json` | MCP 서버 목록 |
-| `hooks.json` | 모든 프로젝트용 훅 (프로젝트의 `.agentiloop/hooks.json`이 더해져요) |
+| `hooks.json` | 모든 프로젝트용 훅 (프로젝트의 `.agentiloop/hooks.json`이 더해져요) |
 | `history.txt` | 입력한 프롬프트 (↑ / ↓ 용) |
 
 ---
@@ -673,7 +689,7 @@ TUI와 명령줄 부분을 제외한 모든 것은 표준 라이브러리예요.
 - [x] 대화 저장
 - [x] 전체 화면 TUI
 - [x] MCP 클라이언트
-- [x] 훅
+- [x] 훅
 - [ ] 다음은 무엇일까요?
 
 ## 라이선스
@@ -682,7 +698,7 @@ TUI와 명령줄 부분을 제외한 모든 것은 표준 라이브러리예요.
 
 ---
 
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_ko.svg" width="900" alt="Sidrune AI, 실버 스폰서: GPT, Claude 및 기타 주요 AI 모델을 하나의 API로. 가입하고 $3 API 크레딧 받기." /></a>
+<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_ko.svg" width="900" alt="Sidrune AI, 실버 스폰서: GPT, Claude 및 기타 주요 AI 모델을 하나의 API로. 가입하고 $3 API 크레딧 받기." /></a>
 
 ---
 

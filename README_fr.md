@@ -1,4 +1,4 @@
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_fr.svg" width="900" alt="Sidrune AI, sponsor Silver : Une seule API pour GPT, Claude et d’autres modèles d’IA de pointe. Inscrivez-vous et recevez 3 $ de crédits API." /></a>
+<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_fr.svg" width="900" alt="Sidrune AI, sponsor Silver : Une seule API pour GPT, Claude et d’autres modèles d’IA de pointe. Inscrivez-vous et recevez 3 $ de crédits API." /></a>
 
 # AgentiLoopGo
 
@@ -30,7 +30,17 @@ Il est écrit en Go et fonctionne sur macOS, Linux et Windows. C'est le jumeau e
 
 Créé avec AgentiLoop Agent! C'est notre bébé. Des binaires précompilés pour macOS, Linux et Windows sont disponibles sur la page [Releases](https://github.com/AgentiLoop/AgentiLoopGo/releases), ou vous pouvez le compiler depuis les sources avec Go.
 
-<img src="docs/pong.png" width="900" alt="AgentiLoop écrit, compile et lance un jeu Pong façon Atari en SwiftUI à partir d'une seule demande, avec le diff en direct et la fenêtre du jeu en cours" />
+<img src="docs/pong.png" width="900" alt="AgentiLoop écrit, compile et lance un jeu Pong façon Atari en SwiftUI à partir d'une seule demande, avec le diff en direct et la fenêtre du jeu en cours" />
+
+---
+
+## ⚡ Premier lancement : l'assistant de configuration fait tout
+
+Il n'y a rien à configurer à la main. La première fois que vous lancez `agentiloop`, un assistant de configuration intégré démarre tout seul. Il demande quel fournisseur vous voulez (Claude, OpenAI, Ollama / LM Studio ou oMLX), prend votre clé API (saisie masquée), vérifie que la clé fonctionne, vous laisse choisir un modèle et enregistre tout dans `~/.agentiloop`. Environ une minute, pas de fichiers de configuration, pas de lignes `export`.
+
+<img src="docs/setup-wizard-tui.png" width="900" alt="L'assistant de configuration dans l'interface plein écran (TUI) : fournisseur, clé API masquée, test de connexion, liste des modèles, emplacement de la clé, puis la première demande" />
+
+Relancez-le à tout moment avec `agentiloop --setup` (ajoutez `--tui` pour la version plein écran, ou tapez `/setup` dans une session). `agentiloop --reset` oublie tout et repart de zéro. Vous n'avez jamais installé de programme en ligne de commande ? Suivez [Nouveau ici ?](#-nouveau-ici--opérationnel-en-5-minutes) ci-dessous, étape par étape.
 
 ---
 
@@ -60,7 +70,7 @@ tar xzf agentiloop-macos-arm64.tar.gz
 mkdir -p ~/.local/bin && mv agentiloop-macos-arm64/agentiloop ~/.local/bin/
 ```
 
-Cela place le programme dans `~/.local/bin`, un dossier de votre répertoire personnel. L'étape 3 indique à votre terminal d'aller chercher là.
+Cela place le programme dans `~/.local/bin`, un dossier de votre répertoire personnel. L'assistant de configuration de l'étape 3 propose d'indiquer à votre terminal d'aller chercher là.
 
 **Windows.** Ouvrez **PowerShell** (menu Démarrer → tapez "PowerShell") et collez :
 
@@ -85,84 +95,99 @@ AgentiLoop, c'est l'agent. Le « cerveau » est un modèle d'IA auquel vous le c
 
 Copiez la clé dans un endroit sûr. Vous la collerez à l'étape suivante.
 
-### 3. Enregistrez vos réglages dans votre profil de shell
+### 3. Lancez l'assistant de configuration
 
-Votre **profil de shell** est un petit fichier texte que votre terminal lit chaque fois qu'il ouvre une nouvelle fenêtre. Mettez-y vos réglages et vous n'aurez à le faire qu'une seule fois. Si vous sautez cette étape, vous devrez retaper votre clé dans chaque nouveau terminal. C'est la raison n° 1 pour laquelle les gens restent bloqués.
+Vous ne modifiez aucun fichier et ne tapez aucune commande `export`. AgentiLoop possède un assistant de configuration intégré qui pose quelques questions et enregistre votre clé pour vous.
 
-**De quel fichier s'agit-il ?**
-
-| Système | Shell (par défaut) | Fichier de profil |
-|---|---|---|
-| macOS (Catalina 10.15 et plus récent) | zsh | `~/.zshrc` |
-| La plupart des distributions Linux | bash | `~/.bashrc` |
-| Linux ou Mac avec zsh | zsh | `~/.zshrc` |
-| Shell fish | fish | `~/.config/fish/config.fish` |
-| Windows | PowerShell | pas nécessaire, voir ci-dessous |
-
-Vous ne savez pas quel shell vous utilisez ? Lancez `echo $SHELL`. `~` désigne votre dossier personnel, donc `~/.zshrc` correspond par exemple à `/Users/you/.zshrc`. Les fichiers qui commencent par un point sont masqués dans le Finder et les explorateurs de fichiers, c'est normal.
-
-**Ouvrez le fichier.** Utilisez l'une de ces commandes (elles créent le fichier s'il n'existe pas encore) :
+Comme `~/.local/bin` n'est pas encore dans votre PATH, lancez-le cette fois-ci avec son chemin complet (sous Windows, l'étape 1 a déjà corrigé le PATH, tapez donc simplement `agentiloop`) :
 
 ```sh
-nano ~/.zshrc                        # fonctionne partout, directement dans le terminal
-touch ~/.zshrc && open -e ~/.zshrc   # macOS : l'ouvre dans TextEdit
+~/.local/bin/agentiloop
 ```
 
-(Linux avec bash : utilisez `~/.bashrc` au lieu de `~/.zshrc`.)
+La première fois, quand aucune clé n'est encore configurée, l'assistant démarre tout seul. Il prend environ une minute et pose cinq questions :
 
-**Ajoutez ces lignes à la fin.** Gardez uniquement la ligne de clé dont vous avez besoin, et collez votre vraie clé entre les guillemets :
+1. **Quel fournisseur** — Claude, OpenAI, un serveur local compatible OpenAI (Ollama, LM Studio, …) ou oMLX. Tapez un numéro.
+2. **Votre clé API** — saisie masquée, rien ne s'affiche à l'écran. Les serveurs locaux n'en ont généralement pas besoin ; pour oMLX sur le même Mac, l'assistant lit la clé dans les propres réglages d'oMLX, il ne la demande donc même pas.
+3. **Test de connexion** — l'assistant contacte le fournisseur immédiatement. Si la clé est fausse, il vous le dit et propose de réessayer ; rien n'est enregistré tant que ça ne fonctionne pas.
+4. **Quel modèle** — choisissez-en un dans la liste renvoyée par le fournisseur, ou appuyez sur Enter pour celui par défaut. Vous pourrez en changer à tout moment avec `/model`.
+5. **Où conserver la clé** — appuyez sur Enter pour l'emplacement par défaut, `~/.agentiloop/env`, un fichier privé que seul AgentiLoop lit. (Les autres choix, pour ceux qui veulent aussi la clé dans leur shell ou dans le Trousseau macOS, sont décrits sous [Avancé : définir la clé à la main](#étape-2--connecter-un-modèle) dans le démarrage rapide.)
 
-```sh
-# AgentiLoop
-export PATH="$HOME/.local/bin:$PATH"
+Enfin, l'assistant remarque que `~/.local/bin` n'est pas dans votre PATH et propose de l'ajouter. Appuyez sur **Enter** (oui). Il affiche alors `All set` et vous dépose à l'invite. Voici une exécution complète dans le terminal classique, en choisissant Claude et en acceptant les valeurs par défaut (votre liste de modèles sera différente) :
 
-export ANTHROPIC_API_KEY="sk-ant-paste-your-key-here"          # Claude
-# export OPENAI_API_KEY="sk-paste-your-key-here"               # OpenAI
-# export OPENAI_BASE_URL="http://localhost:11434/v1"           # Ollama (pas besoin de clé)
+```text
+$ ~/.local/bin/agentiloop
+Welcome to AgentiLoop! Let's set things up (about a minute).
+Settings are kept in /Users/you/.agentiloop. Run `agentiloop --setup` or `/setup` to redo this, `agentiloop --reset` to start over.
+
+Which model provider do you want to use?
+  1  Claude (Anthropic) — API key from console.anthropic.com
+  2  OpenAI — API key from platform.openai.com
+  3  Ollama, LM Studio or another OpenAI-compatible server (local, usually no key)
+  4  oMLX (local Apple Silicon server; reads ~/.omlx/settings.json)
+Provider [1-4, default 1]: 1
+Anthropic API key (starts with sk-ant-, input hidden):
+Checking the connection…
+Connected (8 model(s) available).
+
+Pick a model (change it any time with /model):
+   1  claude-sonnet-5  (default)
+   2  claude-…
+   3  claude-…
+   …
+Model [1-8, an id, or Enter for claude-sonnet-5]:
+
+Where should the credential be saved?
+  1  /Users/you/.agentiloop/env (recommended; only agentiloop reads it, file mode 600)
+  2  Also add it to /Users/you/.zshrc so other tools in your terminal see it
+  3  macOS Keychain, with a line in /Users/you/.zshrc that reads it (nothing stored in plain text)
+Save to [1-3, default 1]:
+saved to /Users/you/.agentiloop/env
+
+`/Users/you/.local/bin` is not on your PATH, so `agentiloop` only works with its full path.
+Add it to PATH in /Users/you/.zshrc? [Y/n]
+updated /Users/you/.zshrc (between `# >>> agentiloop >>>` and `# <<< agentiloop <<<`); it applies to new terminals
+
+All set: anthropic / claude-sonnet-5. Type a request at the prompt, /help for commands, /exit to leave.
 ```
 
-**Enregistrez et fermez.** Dans nano : **Ctrl-O**, **Enter**, puis **Ctrl-X**. Dans TextEdit : **⌘S**, puis fermez la fenêtre.
+Vous pouvez commencer à discuter ici même, ou taper `/exit` et passer à l'étape 4. Désormais, un simple `agentiloop` démarre directement à l'invite.
 
-**Chargez-le.** Ouvrez une nouvelle fenêtre de terminal, ou lancez :
+Pour Claude, vous pouvez coller soit une clé API normale (`sk-ant-api…`), soit un jeton Claude Code (`sk-ant-oat01-…`, obtenu avec `claude setup-token`) ; AgentiLoop détecte de quel type il s'agit. Si vous avez choisi l'option 3 (Ollama, LM Studio, …), l'assistant demande aussi l'URL du serveur et propose `http://localhost:11434/v1` par défaut ; pour un Ollama local, il suffit donc d'appuyer sur Enter.
 
-```sh
-source ~/.zshrc
+**Le même assistant, en plein écran.** L'assistant s'exécute dans l'interface que vous utilisez. Lancez-le avec `--tui` et les mêmes questions apparaissent dans l'interface plein écran ; quand il a terminé, vous êtes déjà à l'invite :
+
+<img src="docs/setup-wizard-tui.png" width="900" alt="L'assistant de configuration dans l'interface plein écran (TUI) : fournisseur, clé API masquée, test de connexion, liste des modèles, emplacement de la clé, puis la première demande" />
+
+**Relancez-le ou recommencez à tout moment :**
+
+```bash
+agentiloop --setup          # assistant dans le terminal classique
+agentiloop --setup --tui    # assistant dans la TUI plein écran (comme sur la capture)
+/setup                      # depuis une session en cours (REPL ou TUI)
+agentiloop --reset          # tout oublier et repartir de zéro
 ```
 
-**fish** utilise une syntaxe différente. Mettez ceci dans `~/.config/fish/config.fish` :
+> 🔒 **Gardez votre clé secrète.** `~/.agentiloop/env` n'est lisible que par vous. Ne collez pas la clé dans des discussions et ne la commitez pas dans git. Sur Mac, l'option 3 de la question « Where should the credential be saved? » la range plutôt dans le Trousseau, elle n'est donc jamais sur le disque en clair.
 
-```fish
-fish_add_path $HOME/.local/bin
-set -gx ANTHROPIC_API_KEY "sk-ant-paste-your-key-here"
-```
+Vous préférez gérer la clé vous-même avec des variables d'environnement ? C'est possible aussi, mais c'est la voie avancée ; voir [Avancé : définir la clé à la main](#étape-2--connecter-un-modèle) dans le démarrage rapide.
 
-**Windows (PowerShell).** Sous Windows, il n'y a pas de fichier de profil à modifier pour cela. Enregistrez plutôt la clé comme variable d'environnement utilisateur (c'est aussi ce que fait l'assistant de configuration si vous choisissez l'option 2) :
-
-```powershell
-setx ANTHROPIC_API_KEY "sk-ant-paste-your-key-here"
-# ou : setx OPENAI_API_KEY "sk-..."   /   setx OPENAI_BASE_URL "http://localhost:11434/v1"
-```
-
-Ensuite, **fermez PowerShell et ouvrez une nouvelle fenêtre**. `setx` n'a pas d'effet sur la fenêtre dans laquelle il est lancé. Vous pouvez aussi le faire à la souris : Démarrer → *Edit environment variables for your account* → *New…*.
-
-> 🔒 **Gardez votre clé secrète.** Ne commitez pas votre fichier de profil dans git et ne collez pas la clé dans des discussions. Sur Mac, vous pouvez plutôt la conserver dans le Trousseau ; voir l'[étape 2 du démarrage rapide](#étape-2--connecter-un-modèle).
 
 ### 4. Vérifiez que tout fonctionne
+
+**Ouvrez une nouvelle fenêtre de terminal** pour qu'elle prenne en compte la modification du PATH faite par l'assistant (Windows : une nouvelle fenêtre PowerShell). Ensuite :
 
 ```sh
 agentiloop --version
 ```
 
-Vous devriez voir `agentiloop 0.0.6`. Vérifiez maintenant que la clé est chargée :
+Vous devriez voir `agentiloop 0.0.6`. Lancez-le maintenant sans option :
 
 ```sh
-echo $ANTHROPIC_API_KEY | cut -c1-10    # macOS / Linux : devrait afficher sk-ant-...
-```
-```powershell
-$env:ANTHROPIC_API_KEY.Substring(0,10)  # Windows PowerShell
+agentiloop
 ```
 
-Si rien ne s'affiche, revenez à l'étape 3. La clé n'est pas encore chargée.
+Il devrait aller directement à l'invite. Si l'assistant redémarre à la place, la clé n'a pas été enregistrée : refaites l'étape 3.
 
 ### 5. Votre première session
 
@@ -176,7 +201,7 @@ cd ~/agentiloop-test
 agentiloop --tui
 ```
 
-Vous utilisez **Ollama** ? Indiquez-lui le fournisseur et un modèle que vous avez téléchargé : `agentiloop -p openai -m qwen2.5-coder --tui`.
+Vous utilisez **Ollama** ? L'assistant a déjà retenu le serveur et le modèle que vous avez choisis. Pour passer à un autre modèle que vous avez téléchargé, tapez `/model` dans la session.
 
 Il ne vous reste qu'à taper ce que vous voulez avec vos propres mots et à appuyer sur **Enter**. Quelques bonnes premières demandes :
 
@@ -206,13 +231,13 @@ L'agent travaille avec dix outils intégrés. Vous ne les appelez pas vous-même
 | `read_file` | Lit un fichier (avec les numéros de ligne) | Non |
 | `list_dir` | Liste les fichiers d'un dossier | Non |
 | `glob` | Trouve des fichiers par motif de nom (`*.rs`, `src/**/*.go`) | Non |
-| `grep` | Cherche dans les fichiers avec une expression régulière | Non |
-| `web_fetch` | Récupère une page web ou une réponse d'API en texte brut | **Oui** |
-| `todo_write` | Tient la liste de tâches du modèle pour les travaux en plusieurs étapes | Non |
+| `grep` | Cherche dans les fichiers avec une expression régulière | Non |
+| `web_fetch` | Récupère une page web ou une réponse d'API en texte brut | **Oui** |
+| `todo_write` | Tient la liste de tâches du modèle pour les travaux en plusieurs étapes | Non |
 | `write_file` | Crée un nouveau fichier ou en écrase un | **Oui** |
 | `edit_file` | Modifie un passage de texte précis dans un fichier | **Oui** |
 | `bash` | Lance une commande shell, comme des tests, des builds ou `git` (`sh -c` sur Mac/Linux, `cmd /C` sur Windows) | **Oui** |
-| `task` | Lance un sous-agent avec une conversation vide pour une tâche autonome (explorer, rechercher) et ne rapporte que sa réponse. Il a les mêmes outils et pose les mêmes questions ; il ne peut pas lancer ses propres sous-agents | Non (ses propres appels d'outils demandent comme d'habitude) |
+| `task` | Lance un sous-agent avec une conversation vide pour une tâche autonome (explorer, rechercher) et ne rapporte que sa réponse. Il a les mêmes outils et pose les mêmes questions ; il ne peut pas lancer ses propres sous-agents | Non (ses propres appels d'outils demandent comme d'habitude) |
 
 Vous voulez plus d'outils, comme la recherche web, des bases de données ou GitHub ? Ajoutez des serveurs MCP ; voir [Ajouter des outils avec MCP](#ajouter-des-outils-avec-mcp-facultatif).
 
@@ -277,11 +302,11 @@ Dans une session, tapez `/help` pour voir les commandes du chat (`/model`, `/ses
 
 | Vous voyez | Solution |
 |---|---|
-| `command not found: agentiloop` | `~/.local/bin` n'est pas dans votre PATH. Ajoutez la ligne `export PATH=...` de l'étape 3, puis ouvrez un nouveau terminal. Sous Windows, ouvrez une nouvelle fenêtre PowerShell |
-| `Error: no provider credentials found` | Aucune clé n'est chargée. Refaites l'étape 3, puis vérifiez avec l'étape 4 |
+| `command not found: agentiloop` | `~/.local/bin` n'est pas dans votre PATH. Ouvrez d'abord une nouvelle fenêtre de terminal ; si cela ne suffit pas, lancez `~/.local/bin/agentiloop --setup` et répondez oui quand il propose de l'ajouter au PATH. Sous Windows, ouvrez une nouvelle fenêtre PowerShell |
+| `Error: no provider credentials found` | Aucune clé n'est enregistrée. Lancez `agentiloop --setup` (étape 3), puis vérifiez avec l'étape 4 |
 | macOS : *"agentiloop" cannot be opened* / *unidentified developer* | Cela arrive si vous avez téléchargé avec un navigateur au lieu de `curl`. Lancez `xattr -d com.apple.quarantine ~/.local/bin/agentiloop` |
 | Windows : *Windows protected your PC* | Cliquez sur **More info** → **Run anyway** |
-| `401` / `invalid x-api-key` / erreur d'authentification | La clé est fausse ou contient des espaces ou des guillemets. Copiez-la à nouveau et vérifiez la ligne dans votre profil |
+| `401` / `invalid x-api-key` / erreur d'authentification | La clé est fausse ou a été collée avec des espaces ou des guillemets. Copiez-la à nouveau et lancez `agentiloop --setup` pour la saisir de nouveau |
 | Ollama : modèle introuvable | Lancez `ollama list` et passez le nom exact avec `-m` |
 | Il continue d'utiliser un ancien modèle ou fournisseur | Il se souvient de vos derniers choix. Passez `-p` / `-m` pour les changer, ou lancez `agentiloop --reset` pour repartir de zéro |
 
@@ -317,32 +342,21 @@ Cela compile le programme et place une commande `agentiloop` dans votre PATH, da
 
 ### Étape 2 : connecter un modèle
 
-AgentiLoop a besoin d'un modèle avec qui parler.
+AgentiLoop a besoin d'un modèle avec qui parler. **Vous n'avez aucune variable d'environnement à définir pour cela** : lancez simplement `agentiloop` et l'assistant de configuration intégré pose quelques questions et enregistre tout pour vous. Le guide pas à pas, avec une exécution complète, se trouve plus haut dans [3. Lancez l'assistant de configuration](#3-lancez-lassistant-de-configuration).
 
-**Le plus simple :** lancez simplement `agentiloop`. Sur une machine sans clé configurée, un court assistant démarre : il demande quel fournisseur vous voulez, prend votre clé (saisie masquée), vérifie la connexion, vous laisse choisir un modèle et enregistre la clé dans `~/.agentiloop/env` (seul AgentiLoop le lit). Vous pouvez le relancer à tout moment avec `agentiloop --setup`, et `agentiloop --reset` remet tout à neuf.
+<details>
+<summary><b>Avancé : définir la clé à la main</b> (passez cette partie si l'assistant a fonctionné pour vous)</summary>
 
-<img src="docs/setup-wizard-tui.png" width="900" alt="L'assistant de configuration dans l'interface plein écran (TUI) : fournisseur, clé API masquée, test de connexion, liste des modèles, emplacement de la clé, puis la première demande" />
+Si vous préférez gérer la clé vous-même, ou si vous exécutez AgentiLoop dans un script ou en CI où personne ne peut répondre à l'assistant, définissez l'une de ces variables d'environnement et AgentiLoop l'utilisera sans rien demander :
 
-```bash
-agentiloop --setup          # assistant dans le terminal classique
-agentiloop --setup --tui    # assistant dans la TUI plein écran (comme sur la capture)
-/setup                      # le relancer depuis une session en cours (REPL ou TUI)
-```
-
-L'assistant s'exécute dans l'interface que vous utilisez. `agentiloop --setup` pose ses questions dans le terminal classique ; `agentiloop --setup --tui` (ou une TUI mémorisée) les pose dans l'interface plein écran, comme sur la capture, et vous amène directement à l'invite une fois terminé. Dans une session en cours, `/setup` fait la même chose dans les deux.
-
-**À la main :** définissez plutôt l'une de ces variables dans votre terminal :
-
-| Je veux utiliser… | Faites ceci |
+| Je veux utiliser… | Définissez ceci |
 |---|---|
 | **Claude** (Anthropic) | `export ANTHROPIC_API_KEY=sk-ant-...` |
 | **OpenAI** | `export OPENAI_API_KEY=sk-...` |
-| **Ollama, LM Studio** ou tout serveur compatible OpenAI | `export OPENAI_BASE_URL=http://localhost:11434/v1` (utilisez l'adresse de votre serveur ; pas besoin de clé pour les serveurs locaux) |
-| **oMLX** (modèles locaux sur Apple Silicon) | En général, rien. Lancez oMLX, puis lancez AgentiLoop avec `-p omlx` (voir ci-dessous) |
+| **Ollama, LM Studio** ou tout serveur compatible OpenAI | `export OPENAI_BASE_URL=http://localhost:11434/v1` (l'adresse de votre serveur ; pas besoin de clé pour les serveurs locaux) |
+| **oMLX** (modèles locaux sur Apple Silicon) | En général, rien. Lancez oMLX, puis lancez AgentiLoop avec `-p omlx` |
 
-Pour Claude, vous pouvez utiliser une clé API normale (`sk-ant-api…`) ou un jeton Claude Code (`sk-ant-oat01-…`, que vous obtenez avec `claude setup-token`). AgentiLoop détecte de quel type il s'agit.
-
-**Détails sur oMLX.** Quand oMLX tourne sur le même Mac, AgentiLoop lit le port du serveur et la clé API dans le propre fichier de réglages d'oMLX (`~/.omlx/settings.json`) ; vous n'avez donc rien à exporter. Si oMLX tourne sur une autre machine, ou si vous voulez remplacer ces réglages, exportez-les vous-même :
+**Détails sur oMLX.** Quand oMLX tourne sur le même Mac, AgentiLoop lit le port du serveur et la clé API dans le propre fichier de réglages d'oMLX (`~/.omlx/settings.json`). Si oMLX tourne sur une autre machine, ou si vous voulez remplacer ces réglages :
 
 ```sh
 export OMLX_BASE_URL=http://192.168.1.50:7777/v1   # l'adresse du serveur oMLX (ou OMLX_PORT=7777 pour localhost)
@@ -351,7 +365,7 @@ export OMLX_API_KEY=...                            # la clé API des réglages d
 
 Si la vérification de clé API est désactivée dans oMLX, aucune clé n'est nécessaire.
 
-Un `export` ne dure que pour l'onglet de terminal dans lequel vous l'avez tapé. Pour le rendre permanent, ajoutez la ligne à votre profil de shell (`~/.zshrc` sur macOS). Sur Mac, vous pouvez garder la clé dans le Trousseau plutôt que dans le fichier :
+Un `export` ne dure que pour l'onglet de terminal dans lequel vous l'avez tapé. Pour le rendre permanent, vous ajouteriez la ligne à votre profil de shell (`~/.zshrc` sur macOS), ce qui est exactement ce que fait pour vous le choix **« Also add it to ~/.zshrc »** de l'assistant. De même, le choix **« macOS Keychain »** de l'assistant est la version automatique de ceci :
 
 ```sh
 # une seule fois : enregistrez la clé dans votre Trousseau
@@ -360,6 +374,8 @@ security add-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w "sk-ant-..."
 # dans ~/.zshrc : chargez-la pour chaque nouveau terminal
 export ANTHROPIC_API_KEY="$(security find-generic-password -a "$USER" -s ANTHROPIC_API_KEY -w 2>/dev/null)"
 ```
+
+</details>
 
 ### Étape 3 : lancer
 
@@ -389,13 +405,13 @@ Vous verrez les réponses de l'agent, chaque outil qu'il utilise (🔧) et chaqu
 | **Chat** (ligne par ligne) | `agentiloop` | Les terminaux simples, ou si vous préférez le texte brut |
 | **Ponctuel** | `agentiloop "explain this project"` | Une seule question : il répond, puis se ferme. Pratique dans les scripts |
 
-Touches dans la TUI : **Enter** envoie · **↑ / ↓** parcourent les demandes précédentes · **PgUp / PgDn** ou la molette de la souris font défiler · **Ctrl-F** affiche ou masque le panneau *fichiers modifiés* (la molette au-dessus fait défiler le panneau ; faites glisser son bord gauche pour le redimensionner) · **Esc** arrête la demande en cours (la session est conservée) · **Ctrl-U** efface la ligne · **Ctrl-C** quitte.
+Touches dans la TUI : **Enter** envoie · **↑ / ↓** parcourent les demandes précédentes · **PgUp / PgDn** ou la molette de la souris font défiler · **Ctrl-F** affiche ou masque le panneau *fichiers modifiés* (la molette au-dessus fait défiler le panneau ; faites glisser son bord gauche pour le redimensionner) · **Esc** arrête la demande en cours (la session est conservée) · **Ctrl-U** efface la ligne · **Ctrl-C** quitte.
 
 ---
 
 ## Mentionner des fichiers avec @
 
-Tapez `@` suivi d'un chemin n'importe où dans un prompt et AgentiLoop joint ce fichier à ce que reçoit le modèle : `explique @src/main.rs` envoie votre phrase plus le texte du fichier avec les numéros de ligne. Un dossier (`@src`) joint sa liste. Les chemins sont relatifs au dossier du projet (ou absolus, ou `~/…`) ; un mot qui ne désigne rien est laissé tel quel, les adresses e-mail ne risquent donc rien. Les fichiers sont coupés à 64 Ko, les dossiers à 200 entrées, et une ligne 📎 montre ce qui a été joint. Fonctionne dans la TUI, le chat et les prompts en une fois.
+Tapez `@` suivi d'un chemin n'importe où dans un prompt et AgentiLoop joint ce fichier à ce que reçoit le modèle : `explique @src/main.rs` envoie votre phrase plus le texte du fichier avec les numéros de ligne. Un dossier (`@src`) joint sa liste. Les chemins sont relatifs au dossier du projet (ou absolus, ou `~/…`) ; un mot qui ne désigne rien est laissé tel quel, les adresses e-mail ne risquent donc rien. Les fichiers sont coupés à 64 Ko, les dossiers à 200 entrées, et une ligne 📎 montre ce qui a été joint. Fonctionne dans la TUI, le chat et les prompts en une fois.
 
 
 ---
@@ -440,7 +456,7 @@ Certaines choses ne sont **jamais** retenues, volontairement :
 
 - `--yes` : sauter les demandes de permission doit être un choix délibéré à chaque fois
 - `--no-mcp`, `-C` et les demandes ponctuelles
-- Les clés API : elles restent dans votre profil de shell
+- Les clés API : elles vivent dans `~/.agentiloop/env` (écrit par l'assistant) ou dans l'environnement de votre shell, jamais dans `settings.json`
 
 Pour tout oublier, lancez `agentiloop --reset`.
 
@@ -460,13 +476,13 @@ Chaque option peut aussi être définie par une variable d'environnement, indiqu
 | `-r, --resume <id>` | | Rouvre une conversation précise (trouvez les ids avec `/sessions`) |
 | `-C, --cwd <folder>` | | Travaille dans un autre dossier que celui où vous êtes |
 | `--yes` | `AGENTILOOP_YES` | Ne demande rien avant de lancer les outils. ⚠️ Uniquement pour un usage automatisé et de confiance |
-| `--allow-tool <name>` | | Exécute cet outil sans demander ; répétez l'option ou utilisez des virgules. `mcp_*` correspond à un préfixe. Utile en CI sans `--yes` |
-| `--deny-tool <name>` | | N'exécute jamais cet outil : le modèle est informé du refus. Prioritaire sur `--allow-tool` et `--yes` |
+| `--allow-tool <name>` | | Exécute cet outil sans demander ; répétez l'option ou utilisez des virgules. `mcp_*` correspond à un préfixe. Utile en CI sans `--yes` |
+| `--deny-tool <name>` | | N'exécute jamais cet outil : le modèle est informé du refus. Prioritaire sur `--allow-tool` et `--yes` |
 | `--plan` | `AGENTILOOP_PLAN` | Mode plan : démarre avec tous les outils qui modifient quelque chose désactivés (`write_file`, `edit_file`, `bash`, `task`, outils MCP qui ne sont pas en lecture seule). Le modèle lit et cherche, puis répond par un plan numéroté au lieu de faire le travail. `/plan` le désactive (ou l'active) pendant une session |
 | `--no-mcp` | `AGENTILOOP_NO_MCP` | Ne démarre pas les serveurs MCP (voir ci-dessous) |
-| `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Texte supplémentaire ajouté à la fin du prompt système pour cette exécution (non enregistré) |
-| `--json` | | Avec une requête unique : affiche la réponse sous forme d'un objet JSON (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) sur stdout. L'activité des outils reste sur stderr |
-| `--stream-json` | | Avec un prompt en une fois : affiche chaque événement comme un objet JSON par ligne sur stdout au fur et à mesure (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), puis le même objet résultat que `--json` avec `"type": "result"`. Rien d'autre n'est affiché. Pour les éditeurs et scripts qui veulent suivre la progression |
+| `--append-system-prompt <text>` | `AGENTILOOP_APPEND_SYSTEM_PROMPT` | Texte supplémentaire ajouté à la fin du prompt système pour cette exécution (non enregistré) |
+| `--json` | | Avec une requête unique : affiche la réponse sous forme d'un objet JSON (`result`, `is_error`, `session_id`, `provider`, `model`, `usage`) sur stdout. L'activité des outils reste sur stderr |
+| `--stream-json` | | Avec un prompt en une fois : affiche chaque événement comme un objet JSON par ligne sur stdout au fur et à mesure (`text_delta`, `text`, `tool_call`, `tool_result`, `turn`, `compacted`, `retry`, `done`), puis le même objet résultat que `--json` avec `"type": "result"`. Rien d'autre n'est affiché. Pour les éditeurs et scripts qui veulent suivre la progression |
 | `--setup` | | Relance l'assistant de première configuration (fournisseur, clé, modèle). Avec `--tui`, il s'exécute dans l'interface plein écran |
 | `--reset` | | Retour à neuf : supprime `~/.agentiloop`, le bloc agentiloop de votre profil shell et les éléments du Trousseau créés par l'assistant (sous Windows : les variables d'environnement utilisateur qu'il a définies). Les lignes `export` écrites à la main sont seulement mises en commentaire, et seulement si vous acceptez. Ajoutez `--yes` pour sauter les questions |
 | `--max-turns <n>` | | Nombre maximal d'étapes que l'agent peut faire par demande (50 par défaut) |
@@ -503,16 +519,16 @@ Tapez-les à l'invite, dans la TUI ou dans le chat :
 | `/sessions` | Liste vos conversations enregistrées, des plus récentes aux plus anciennes |
 | `/resume <n or id>` | Rouvre l'une d'elles |
 | `/clear` | Efface la conversation et en démarre une nouvelle |
-| `/undo` | Annule les modifications de fichiers faites par l'agent pour votre dernier message (celles faites par `bash` ne sont pas annulées) |
-| `/todos` | Affiche la liste de tâches actuelle du modèle |
-| `/diff` | Affiche ce qui a changé dans l'arbre de travail git (état plus diff, coupé à 200 lignes) |
-| `/commands` | Vos propres commandes : chaque `.agentiloop/commands/<name>.md` (projet) ou `~/.agentiloop/commands/<name>.md` devient `/<name>` et envoie le fichier comme prompt (`$ARGUMENTS` est remplacé par ce qui suit, `$1`–`$9` par chaque mot). Les liste |
-| `/hooks` | Affiche les hooks chargés depuis `.agentiloop/hooks.json` (voir [Hooks](#hooks--lancer-vos-propres-commandes-autour-des-outils)) |
+| `/undo` | Annule les modifications de fichiers faites par l'agent pour votre dernier message (celles faites par `bash` ne sont pas annulées) |
+| `/todos` | Affiche la liste de tâches actuelle du modèle |
+| `/diff` | Affiche ce qui a changé dans l'arbre de travail git (état plus diff, coupé à 200 lignes) |
+| `/commands` | Vos propres commandes : chaque `.agentiloop/commands/<name>.md` (projet) ou `~/.agentiloop/commands/<name>.md` devient `/<name>` et envoie le fichier comme prompt (`$ARGUMENTS` est remplacé par ce qui suit, `$1`–`$9` par chaque mot). Les liste |
+| `/hooks` | Affiche les hooks chargés depuis `.agentiloop/hooks.json` (voir [Hooks](#hooks--lancer-vos-propres-commandes-autour-des-outils)) |
 | `/plan [on\|off]` | Active ou désactive le mode plan (sans argument : bascule). Tant qu'il est actif, les outils qui modifient quelque chose refusent de s'exécuter et le modèle répond par un plan ; la TUI affiche **PLAN** dans la ligne d'état |
-| `/init` | Crée un `AGENTS.md` de départ pour le projet courant (n'écrase jamais) |
-| `/export [file]` | Enregistre la conversation en fichier Markdown (`/export notes.md`, ou un nom par défaut dans le dossier du projet) |
+| `/init` | Crée un `AGENTS.md` de départ pour le projet courant (n'écrase jamais) |
+| `/export [file]` | Enregistre la conversation en fichier Markdown (`/export notes.md`, ou un nom par défaut dans le dossier du projet) |
 | `/compact` | Résume la conversation maintenant pour libérer de la place |
-| `/usage` | Affiche les tokens utilisés depuis le démarrage et le remplissage du contexte |
+| `/usage` | Affiche les tokens utilisés depuis le démarrage et le remplissage du contexte |
 | `/status` | Où vous en êtes : dossier, fournisseur, modèle et ses limites, session, mode plan, outils (et combien viennent de MCP), hooks, fichiers d'instructions, réglages et consommation de tokens |
 | `/mcp` | Affiche les serveurs MCP connectés et leurs outils |
 | `/help` | Liste ces commandes |
@@ -524,19 +540,19 @@ Tapez-les à l'invite, dans la TUI ou dans le chat :
 
 Les modèles ne peuvent lire qu'une quantité limitée à la fois. Quand une conversation devient longue (par défaut, quand une requête atteint 150 000 tokens), AgentiLoop demande au modèle de la résumer jusque-là et continue à partir du résumé. Vous verrez une note 📦 quand cela se produit. `/compact` le fait à la demande, et `--compact-at 0` le désactive.
 
-**Cache de prompt (Anthropic).** Les requêtes vers Anthropic marquent le prompt système, les outils et le dernier message comme cachables : la requête suivante de la même conversation réutilise l'essentiel du prompt au lieu de le payer à nouveau (la partie en cache coûte environ un dixième, et la réponse démarre plus tôt). Rien à configurer. `/usage` indique combien de tokens ont été lus depuis le cache et écrits dedans, et `--json` les rapporte comme `cache_read_tokens` et `cache_write_tokens`.
+**Cache de prompt (Anthropic).** Les requêtes vers Anthropic marquent le prompt système, les outils et le dernier message comme cachables : la requête suivante de la même conversation réutilise l'essentiel du prompt au lieu de le payer à nouveau (la partie en cache coûte environ un dixième, et la réponse démarre plus tôt). Rien à configurer. `/usage` indique combien de tokens ont été lus depuis le cache et écrits dedans, et `--json` les rapporte comme `cache_read_tokens` et `cache_write_tokens`.
 
 ---
 
 ## Instructions du projet
 
-Placez un fichier `AGENTS.md` (ou `CLAUDE.md`) dans votre projet : AgentiLoop le lit au démarrage et le suit (commandes de build, style de code, choses à éviter). Il le cherche dans le dossier courant puis dans les dossiers parents, jusqu'à la racine du projet (le dossier contenant `.git`). Un `~/.agentiloop/AGENTS.md` personnel s'applique à tous les projets ; le fichier du projet vient après et l'emporte. Les fichiers sont coupés à 32 Ko. Une ligne `instructions: <chemin>` indique les fichiers chargés. Une ligne qui ne contient que `@chemin` (par exemple `@docs/style.md`) est remplacée par le texte de ce fichier, relativement au fichier qui la contient. Les imports peuvent s'imbriquer sur trois niveaux ; les fichiers manquants, les boucles et les lignes dans des blocs de code sont laissés tels quels.
+Placez un fichier `AGENTS.md` (ou `CLAUDE.md`) dans votre projet : AgentiLoop le lit au démarrage et le suit (commandes de build, style de code, choses à éviter). Il le cherche dans le dossier courant puis dans les dossiers parents, jusqu'à la racine du projet (le dossier contenant `.git`). Un `~/.agentiloop/AGENTS.md` personnel s'applique à tous les projets ; le fichier du projet vient après et l'emporte. Les fichiers sont coupés à 32 Ko. Une ligne `instructions: <chemin>` indique les fichiers chargés. Une ligne qui ne contient que `@chemin` (par exemple `@docs/style.md`) est remplacée par le texte de ce fichier, relativement au fichier qui la contient. Les imports peuvent s'imbriquer sur trois niveaux ; les fichiers manquants, les boucles et les lignes dans des blocs de code sont laissés tels quels.
 
 ---
 
 ## Hooks : lancer vos propres commandes autour des outils
 
-Un hook est une commande shell qu'AgentiLoop lance pour vous à un moment précis : avant qu'un outil s'exécute (`PreToolUse`), après (`PostToolUse`), ou quand l'agent termine une requête (`Stop`). Placez-les dans `.agentiloop/hooks.json` dans votre projet, ou dans `~/.agentiloop/hooks.json` pour tous les projets (les deux sont chargés) :
+Un hook est une commande shell qu'AgentiLoop lance pour vous à un moment précis : avant qu'un outil s'exécute (`PreToolUse`), après (`PostToolUse`), ou quand l'agent termine une requête (`Stop`). Placez-les dans `.agentiloop/hooks.json` dans votre projet, ou dans `~/.agentiloop/hooks.json` pour tous les projets (les deux sont chargés) :
 
 ```json
 {
@@ -548,17 +564,17 @@ Un hook est une commande shell qu'AgentiLoop lance pour vous à un moment pré
 }
 ```
 
-- `matcher` indique à quels outils le hook s'applique, avec les mêmes règles que `--allow-tool` (noms, préfixes `mcp_*`, `*`). Omettez-le pour tous les outils. Les hooks `Stop` l'ignorent.
-- La commande tourne avec `sh -c` (`cmd /C` sous Windows) dans le dossier du projet. Elle reçoit un objet JSON sur stdin : `event`, `cwd`, `tool` et `input` ; `PostToolUse` ajoute `output` et `is_error`, `Stop` ajoute `stop_reason`. `AGENTILOOP_HOOK_EVENT` et `AGENTILOOP_TOOL` sont définies comme variables d'environnement.
-- **Le code de sortie 2 parle au modèle.** Un hook `PreToolUse` qui sort avec 2 bloque l'appel, et ce qu'il a écrit sur stderr est envoyé au modèle comme erreur. Pour un hook `PostToolUse` qui sort avec 2, son stderr est ajouté au résultat de l'outil. Tout autre code est ignoré (un code non nul est journalisé). Un hook est tué après 60 secondes.
-- `/hooks` liste ce qui a été chargé. Un fichier cassé est signalé au démarrage et ignoré.
+- `matcher` indique à quels outils le hook s'applique, avec les mêmes règles que `--allow-tool` (noms, préfixes `mcp_*`, `*`). Omettez-le pour tous les outils. Les hooks `Stop` l'ignorent.
+- La commande tourne avec `sh -c` (`cmd /C` sous Windows) dans le dossier du projet. Elle reçoit un objet JSON sur stdin : `event`, `cwd`, `tool` et `input` ; `PostToolUse` ajoute `output` et `is_error`, `Stop` ajoute `stop_reason`. `AGENTILOOP_HOOK_EVENT` et `AGENTILOOP_TOOL` sont définies comme variables d'environnement.
+- **Le code de sortie 2 parle au modèle.** Un hook `PreToolUse` qui sort avec 2 bloque l'appel, et ce qu'il a écrit sur stderr est envoyé au modèle comme erreur. Pour un hook `PostToolUse` qui sort avec 2, son stderr est ajouté au résultat de l'outil. Tout autre code est ignoré (un code non nul est journalisé). Un hook est tué après 60 secondes.
+- `/hooks` liste ce qui a été chargé. Un fichier cassé est signalé au démarrage et ignoré.
 
-Par exemple, ce hook `PreToolUse` empêche `bash` de lancer `git push` :
+Par exemple, ce hook `PreToolUse` empêche `bash` de lancer `git push` :
 
 ```sh
 #!/bin/sh
 # .agentiloop/check-command.sh — stdin est le JSON de l'appel
-if grep -q 'git push' ; then echo "git push n'est pas autorisé depuis l'agent" >&2; exit 2; fi
+if grep -q 'git push' ; then echo "git push n'est pas autorisé depuis l'agent" >&2; exit 2; fi
 ```
 
 ---
@@ -585,7 +601,7 @@ Comment ça marche :
 - **Noms des outils.** Chaque outil d'un serveur apparaît pour l'agent sous la forme `mcp_<server>_<tool>`, par exemple `mcp_Local_search`.
 - **Secrets.** `${VAR}` (ou `${VAR:-default}`) est rempli à partir de votre environnement, les clés n'ont donc pas besoin d'être dans le fichier.
 - **Permissions.** Les outils MCP demandent la permission comme n'importe quel autre outil, sauf si le serveur marque un outil comme en lecture seule.
-- **Prompts.** Les prompts enregistrés d'un serveur deviennent des commandes `/mcp__<serveur>__<prompt>`, p. ex. `/mcp__Local__summarize du texte`. Les mots après la commande remplissent les arguments du prompt dans l'ordre (ou `nom=valeur`) ; le texte renvoyé par le serveur est envoyé comme votre prompt. `/mcp` les liste.
+- **Prompts.** Les prompts enregistrés d'un serveur deviennent des commandes `/mcp__<serveur>__<prompt>`, p. ex. `/mcp__Local__summarize du texte`. Les mots après la commande remplissent les arguments du prompt dans l'ordre (ou `nom=valeur`) ; le texte renvoyé par le serveur est envoyé comme votre prompt. `/mcp` les liste.
 - **Désactiver des serveurs.** Ajoutez `"disabled": true` pour ignorer un serveur, ou lancez avec `--no-mcp` pour les ignorer tous.
 - **Sécurité.** Le `http://` simple n'est autorisé que pour localhost ; les serveurs distants exigent `https://`.
 
@@ -682,7 +698,7 @@ Tout ce qui ne relève pas de la TUI ou de la ligne de commande utilise la bibli
 
 ---
 
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_fr.svg" width="900" alt="Sidrune AI, sponsor Silver : Une seule API pour GPT, Claude et d’autres modèles d’IA de pointe. Inscrivez-vous et recevez 3 $ de crédits API." /></a>
+<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_fr.svg" width="900" alt="Sidrune AI, sponsor Silver : Une seule API pour GPT, Claude et d’autres modèles d’IA de pointe. Inscrivez-vous et recevez 3 $ de crédits API." /></a>
 
 ---
 
