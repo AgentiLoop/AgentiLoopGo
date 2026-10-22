@@ -801,7 +801,7 @@ func drawBox(s tcell.Screen, x, y, w, h int, border tcell.Style, title Line) {
 func (a *App) Draw(s tcell.Screen) {
 	s.Clear()
 	w, h := s.Size()
-	transcriptH := max(h-4, 1)
+	transcriptH := max(h-5, 1)
 	a.selAreas = a.selAreas[:0]
 	// Claude Code-style "files changed" pane on the right, when there's room.
 	transcriptW := w
@@ -820,7 +820,7 @@ func (a *App) Draw(s tcell.Screen) {
 	a.drawTranscript(s, 0, 0, transcriptW, transcriptH)
 	a.selAreas = append(a.selAreas, area{0, 0, transcriptW, transcriptH})
 
-	// Input box (3 rows) and status bar (1 row).
+	// Input box (4 rows: two text rows) and status bar (1 row).
 	iy := transcriptH
 	title := Line{raw(" prompt ")}
 	switch {
@@ -829,34 +829,38 @@ func (a *App) Draw(s tcell.Screen) {
 	case a.asking:
 		title = Line{raw(" setup ")}
 	}
-	drawBox(s, 0, iy, w, 3, tcell.StyleDefault, title)
+	drawBox(s, 0, iy, w, 4, tcell.StyleDefault, title)
 	inner := max(w-2, 1)
+	const innerH = 2
 	shown, cursor := a.input, a.cursor
 	if a.asking && a.askSecret {
 		shown = strings.Repeat("•", utf8.RuneCountInString(a.input))
 		cursor = len(strings.Repeat("•", utf8.RuneCountInString(a.input[:a.cursor])))
 	}
-	// Keep the cursor visible in a long line by scrolling the input horizontally.
-	before := width(shown[:cursor])
-	off := max(before-(inner-1), 0)
-	visible := Line{raw(shown)}
-	if off > 0 {
-		visible = hardWrapOffset(shown, off)
+	// Hard-wrap at the box width (two rows) so the cursor maps 1:1 to a cell; scroll to keep it visible.
+	runes := []rune(shown)
+	cur := utf8.RuneCountInString(shown[:cursor])
+	row, col := cur/inner, cur%inner
+	scroll := max(row-(innerH-1), 0)
+	for r := 0; r < innerH; r++ {
+		start := min((scroll+r)*inner, len(runes))
+		end := min(start+inner, len(runes))
+		drawLine(s, 1, iy+1+r, inner, Line{raw(string(runes[start:end]))})
 	}
-	drawLine(s, 1, iy+1, inner, visible)
-	a.selAreas = append(a.selAreas, area{1, iy + 1, inner, 1})
+	a.selAreas = append(a.selAreas, area{1, iy + 1, inner, innerH})
 	if a.modal == nil {
-		s.ShowCursor(1+min(before-off, inner-1), iy+1)
+		s.ShowCursor(1+col, iy+1+row-scroll)
 	} else {
 		s.HideCursor()
 	}
 
-	bar := Line{raw(a.status)}
+	orange := tcell.NewRGBColor(0xE0, 0x8A, 0x5B)
+	bar := Line{styled(a.status, fg(tcell.ColorWhite))}
 	if a.speed != "" {
 		bar = append(bar, styled("⏱ "+a.speed+" ", fg(tcell.ColorGreen)))
 	}
-	bar = append(bar, styled("  Enter send · Esc cancel · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(tcell.ColorGray)))
-	rev := tcell.StyleDefault.Reverse(true)
+	bar = append(bar, styled("  Enter send · Esc cancel · ↑↓ history · PgUp/PgDn scroll · click links · drag to copy · Ctrl-F files · Ctrl-C quit", fg(orange)))
+	rev := tcell.StyleDefault.Foreground(orange).Reverse(true)
 	fill(s, 0, h-1, w, 1, rev)
 	for i := range bar {
 		bar[i].Style = bar[i].Style.Reverse(true)
@@ -878,17 +882,6 @@ func (a *App) Draw(s tcell.Screen) {
 	}
 }
 
-// hardWrapOffset drops the first `off` cells of s.
-func hardWrapOffset(s string, off int) Line {
-	col := 0
-	for i, r := range s {
-		if col >= off {
-			return Line{raw(s[i:])}
-		}
-		col += runewidth.RuneWidth(r)
-	}
-	return nil
-}
 
 var spinner = []string{"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"}
 var dots = []string{"   ", ".  ", ".. ", "..."}

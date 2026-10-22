@@ -112,7 +112,7 @@ func TestEditDiffShowsNumberedTintedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Fini()
-	s.SetSize(60, 10)
+	s.SetSize(60, 11)
 	a.Draw(s)
 	s.Show()
 	cells, w, _ := s.(tcell.SimulationScreen).GetContents()

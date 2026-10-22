@@ -57,7 +57,7 @@ func TestEnterSubmitsAndRecordsUserLine(t *testing.T) {
 	if !ok || act.Line != "hello there" || !a.busy || a.input != "" {
 		t.Fatalf("%+v", act)
 	}
-	s := screen(t, a, 40, 8)
+	s := screen(t, a, 40, 9)
 	if !strings.Contains(s, "> hello there") || !strings.Contains(s, "Thinking") || !strings.Contains(s, "0s") {
 		t.Fatal(s)
 	}
@@ -67,11 +67,11 @@ func TestReplayedSessionShowsAndClearWipes(t *testing.T) {
 	a := NewApp("s")
 	a.Apply(uiUser{"earlier question"})
 	a.Apply(uiEvent{core.EvText{Text: "earlier answer"}})
-	if s := screen(t, a, 40, 8); !strings.Contains(s, "> earlier question") || !strings.Contains(s, "earlier answer") {
+	if s := screen(t, a, 40, 9); !strings.Contains(s, "> earlier question") || !strings.Contains(s, "earlier answer") {
 		t.Fatal(s)
 	}
 	a.Apply(uiClear{})
-	if strings.Contains(screen(t, a, 40, 8), "earlier") {
+	if strings.Contains(screen(t, a, 40, 9), "earlier") {
 		t.Fatal("not cleared")
 	}
 }
@@ -119,7 +119,7 @@ func TestToolEventsRenderWithMarks(t *testing.T) {
 	a := NewApp("s")
 	a.Apply(uiEvent{core.EvToolCall{ID: "1", Name: "bash", Input: json.RawMessage(`{"cmd":"ls"}`)}})
 	a.Apply(uiEvent{core.EvToolResult{ID: "1", Name: "bash", Output: "boom", IsError: true}})
-	s := screen(t, a, 50, 8)
+	s := screen(t, a, 50, 9)
 	if !strings.Contains(s, "\U0001f527") || !strings.Contains(s, `bash {"cmd":"ls"}`) || !strings.Contains(s, "✖ boom") {
 		t.Fatal(s)
 	}
@@ -136,7 +136,7 @@ func TestReadFilePreviewIsHighlightedAndAligned(t *testing.T) {
 	if fgOf(find(t, code[0], "fn")) != rgb(xcKeyword) || len(a.pendingPaths) != 0 {
 		t.Fatal("highlight")
 	}
-	s := screen(t, a, 40, 8)
+	s := screen(t, a, 40, 9)
 	if !strings.Contains(s, "✓     1│fn main() {}") || !strings.Contains(s, "      2│let x = 1;") {
 		t.Fatal(s)
 	}
@@ -145,7 +145,7 @@ func TestReadFilePreviewIsHighlightedAndAligned(t *testing.T) {
 func TestClickingALinkOpensItAndWheelScrolls(t *testing.T) {
 	a := NewApp("s")
 	a.Apply(uiEvent{core.EvText{Text: "see [docs](https://a.io/x) now"}})
-	if s := screen(t, a, 40, 8); !strings.Contains(s, "see docs now") {
+	if s := screen(t, a, 40, 9); !strings.Contains(s, "see docs now") {
 		t.Fatal(s)
 	}
 	click := func(x, y int) Action { return a.HandleMouse(tcell.NewEventMouse(x, y, tcell.Button1, tcell.ModNone)) }
@@ -232,7 +232,7 @@ func TestLongLinesWrapAndBottomFollows(t *testing.T) {
 func TestBlankLineInTextRendersAsOneBlankRow(t *testing.T) {
 	a := NewApp("s")
 	a.Apply(uiEvent{core.EvText{Text: "para one\n\npara two"}})
-	rowsOut := strings.Split(screen(t, a, 20, 8), "\n")
+	rowsOut := strings.Split(screen(t, a, 20, 9), "\n")
 	one, two := -1, -1
 	for i, r := range rowsOut {
 		switch strings.TrimRight(r, " ") {
@@ -380,7 +380,7 @@ func TestHistoryPersistsAcrossLaunches(t *testing.T) {
 func TestStatusUpdateReplacesModelInBar(t *testing.T) {
 	a := NewApp(" anthropic  claude-fable-5-1 ")
 	a.Apply(uiStatus{" anthropic  claude-opus-5-5 "})
-	if s := screen(t, a, 120, 8); !strings.Contains(s, "claude-opus-5-5") || strings.Contains(s, "claude-fable-5-1") {
+	if s := screen(t, a, 120, 9); !strings.Contains(s, "claude-opus-5-5") || strings.Contains(s, "claude-fable-5-1") {
 		t.Fatal(s)
 	}
 }
@@ -389,7 +389,7 @@ func TestStatusBarShowsTokensPerSecond(t *testing.T) {
 	a := NewApp("S")
 	ft := uint64(500)
 	a.Apply(uiEvent{core.EvTurnComplete{InputTokens: 10, OutputTokens: 100, ElapsedMs: 2500, FirstTokenMs: &ft}})
-	if s := screen(t, a, 120, 8); !strings.Contains(s, "50.0 tok/s · ttft 0.50s · 100 tok in 2.5s") {
+	if s := screen(t, a, 120, 9); !strings.Contains(s, "50.0 tok/s · ttft 0.50s · 100 tok in 2.5s") {
 		t.Fatal(s)
 	}
 }
@@ -415,14 +415,14 @@ func TestSetupAnswersAreMaskedAndKeptOutOfHistory(t *testing.T) {
 	}
 	a.Apply(uiAsk{Secret: true})
 	typeStr(a, "sk-secret")
-	s := screen(t, a, 40, 8)
+	s := screen(t, a, 40, 9)
 	if !strings.Contains(s, "•••••••••") || strings.Contains(s, "sk-secret") || !strings.Contains(s, " setup ") {
 		t.Fatal(s)
 	}
 	if act, ok := a.HandleKey(key(tcell.KeyEnter)).(actSubmit); !ok || act.Line != "sk-secret" {
 		t.Fatalf("%#v", act)
 	}
-	s = screen(t, a, 40, 8)
+	s = screen(t, a, 40, 9)
 	if !strings.Contains(s, "> •••••••••") || strings.Contains(s, "sk-secret") {
 		t.Fatal(s)
 	}
