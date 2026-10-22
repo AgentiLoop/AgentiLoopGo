@@ -125,3 +125,74 @@ func TestAtImportsInlineFilesAndLeaveUnresolvableLinesAlone(t *testing.T) {
 		t.Fatalf("fenced or cyclic import was expanded:\n%s", text)
 	}
 }
+
+func TestNoteLinesNeedAHashAndASpace(t *testing.T) {
+	for line, want := range map[string]string{"# always run cargo fmt": "always run cargo fmt", "  #  spaced  ": "spaced", "#": "", "# ": "", "#hashtag": "", "fix bug #12": ""} {
+		got, ok := NoteLine(line)
+		if got != want || ok != (want != "") {
+			t.Fatalf("%q: got %q %v", line, got, ok)
+		}
+	}
+}
+
+func TestRememberCreatesAppendsAndKeepsTheNotesSectionTogether(t *testing.T) {
+	d := t.TempDir()
+	write(t, filepath.Join(d, "go.mod"), "module x")
+	read := func() string {
+		b, err := os.ReadFile(filepath.Join(d, "AGENTS.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	// No file: the template is created with a Notes section at the end.
+	path, err := Remember(d, "use tabs")
+	if err != nil || path != filepath.Join(d, "AGENTS.md") {
+		t.Fatal(path, err)
+	}
+	if text := read(); !strings.HasPrefix(text, "# "+filepath.Base(d)) || !strings.HasSuffix(text, "## Do not\n\n- (things to avoid: generated files, secrets, risky commands)\n\n## Notes\n\n- use tabs\n") {
+		t.Fatal(text)
+	}
+	// Second note joins the list.
+	if _, err := Remember(d, "  no panics\nin lib code "); err != nil {
+		t.Fatal(err)
+	}
+	if text := read(); !strings.HasSuffix(text, "## Notes\n\n- use tabs\n- no panics in lib code\n") {
+		t.Fatal(text)
+	}
+	// A Notes section in the middle keeps its place; the file keeps its trailing text.
+	write(t, path, "# P\n\n## Notes\n\n- one\n\n\n## Do not\n\n- x\n")
+	if _, err := Remember(d, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if text := read(); text != "# P\n\n## Notes\n\n- one\n- two\n\n\n## Do not\n\n- x\n" {
+		t.Fatalf("%q", text)
+	}
+	// An empty Notes heading at the end gets a blank line, then the bullet.
+	write(t, path, "# P\n\n## Notes")
+	if _, err := Remember(d, "three"); err != nil {
+		t.Fatal(err)
+	}
+	if text := read(); text != "# P\n\n## Notes\n\n- three\n" {
+		t.Fatalf("%q", text)
+	}
+	// CLAUDE.md in a parent (inside the repo) is the file; a .git boundary stops the walk.
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	write(t, filepath.Join(repo, ".git", "HEAD"), "ref")
+	write(t, filepath.Join(repo, "CLAUDE.md"), "rules\n")
+	deep := filepath.Join(repo, "sub", "deep")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := NotesPath(deep); got != filepath.Join(repo, "CLAUDE.md") {
+		t.Fatal(got)
+	}
+	write(t, filepath.Join(root, "AGENTS.md"), "outside\n")
+	if err := os.Remove(filepath.Join(repo, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := NotesPath(deep); got != filepath.Join(deep, "AGENTS.md") {
+		t.Fatal(got)
+	}
+}

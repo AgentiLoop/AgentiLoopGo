@@ -404,12 +404,11 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 	}
 	config := core.DefaultAgentConfig()
 	config.Model, config.MaxTurns, config.CompactAtTokens, config.MaxRetries = model, maxTurns, compactAt, cli.maxRetries
-	instructions := core.LoadInstructions(cwd, agentiloopHome())
+	prompt, instructions := systemPrompt(cwd, cli.appendPrompt)
 	for _, i := range instructions {
 		note("instructions: " + i.Path)
 	}
-	config.SystemPrompt = core.AppendInstructions(config.SystemPrompt, instructions)
-	config.SystemPrompt = appendExtra(config.SystemPrompt, cli.appendPrompt)
+	config.SystemPrompt = prompt
 	hooks, hookErrs := core.LoadHooks(core.HookPaths(cwd, agentiloopHome()))
 	for _, e := range hookErrs {
 		note("hooks: " + e)
@@ -446,7 +445,7 @@ func boot(ctx context.Context, cli *cliArgs, saved *Settings, cwd string, intera
 		note(planLine(true))
 	}
 
-	return &cmdState{agent: agent, provider: prov, saved: saved, session: session, sessionsDir: sdir, mcp: mgr, setup: setup}, nil
+	return &cmdState{agent: agent, provider: prov, saved: saved, session: session, sessionsDir: sdir, mcp: mgr, setup: setup, appendPrompt: cli.appendPrompt}, nil
 }
 
 // cmdState is what slash commands operate on.
@@ -461,6 +460,8 @@ type cmdState struct {
 	ask func(prompt string) (string, error)
 	// setup is how /setup talks to the user: the terminal, or the TUI's transcript and input line.
 	setup prompter
+	// appendPrompt is the --append-system-prompt text, kept so a `# note` can rebuild the system prompt.
+	appendPrompt string
 }
 
 func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan string, cancel <-chan struct{}, uiDone <-chan error, cwd string) error {
@@ -498,6 +499,12 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			q.Send(uiLine{shellLine(cmd, output)})
 			st.agent.AddShellOutput(cmd, output)
 			st.persist()
+			q.Send(uiIdle{})
+			continue
+		}
+		// `# note` goes to AGENTS.md, not to the model.
+		if text, ok := core.NoteLine(line); ok {
+			q.Send(uiLine{st.rememberNote(cwd, text)})
 			q.Send(uiIdle{})
 			continue
 		}
@@ -630,6 +637,10 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			st.persist()
 			continue
 		}
+		if text, ok := core.NoteLine(line); ok {
+			fmt.Fprintln(os.Stderr, st.rememberNote(cwd, text))
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			before := st.session.ID
 			if err := st.slashCommand(ctx, line, func(s string) { fmt.Fprintln(os.Stderr, s) }); err != nil {
@@ -717,6 +728,26 @@ func replayREPL(history []core.Message) {
 }
 
 // persist snapshots the agent's history into the session file. Empty histories are not written.
+// systemPrompt is the system prompt for cwd: the default, the AGENTS.md / CLAUDE.md
+// instructions found (returned too, for the startup notes), then any --append-system-prompt text.
+func systemPrompt(cwd, extra string) (string, []core.Instructions) {
+	found := core.LoadInstructions(cwd, agentiloopHome())
+	return appendExtra(core.AppendInstructions(core.DefaultSystemPrompt, found), extra), found
+}
+
+// rememberNote handles a `# note` line: append it to the project's AGENTS.md and reload the
+// instructions into the running agent's system prompt, so the note counts from the next request.
+// Returns what to show.
+func (st *cmdState) rememberNote(cwd, text string) string {
+	path, err := core.Remember(cwd, text)
+	if err != nil {
+		return err.Error()
+	}
+	prompt, _ := systemPrompt(cwd, st.appendPrompt)
+	st.agent.SetSystemPrompt(prompt)
+	return fmt.Sprintf("\U0001f4dd noted in %s (in effect from the next request)", path)
+}
+
 // runShell runs a `!cmd` line through the bash tool (same shell, timeout and
 // output cap as the model's commands); a failure is returned as its message.
 func runShell(ctx context.Context, cwd, command string) string {
@@ -787,6 +818,7 @@ func fetchModels(ctx context.Context, p core.Provider) []core.ModelInfo {
 }
 
 const helpText = "!<command>      run a shell command here; its output joins the conversation\n" +
+	"# <note>        remember the note in this project's AGENTS.md (under ## Notes)\n" +
 	"/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
 	"/usage          tokens used since start and how full the context is\n" +

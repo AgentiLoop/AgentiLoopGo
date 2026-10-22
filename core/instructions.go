@@ -185,3 +185,105 @@ func InitInstructions(dir string) (string, error) {
 	}
 	return path, nil
 }
+
+// NoteLine returns the note behind a `# note` prompt line: the text after `# `,
+// or false when the line isn't one (`#` alone, a `#hashtag`, or a line that
+// merely contains a `#`).
+func NoteLine(line string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "# ")
+	if !ok {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	return rest, rest != ""
+}
+
+// NotesHeading is the heading under which Remember collects notes.
+const NotesHeading = "## Notes"
+
+// NotesPath is the project instruction file a note goes to: the nearest
+// AGENTS.md / CLAUDE.md from cwd upwards (stopping at the repository root),
+// else a new AGENTS.md in cwd.
+func NotesPath(cwd string) string {
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		for _, name := range InstructionFileNames {
+			path := filepath.Join(dir, name)
+			if st, err := os.Stat(path); err == nil && st.Mode().IsRegular() {
+				return path
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			break
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			break
+		}
+	}
+	return filepath.Join(cwd, InstructionFileNames[0])
+}
+
+// Remember appends note as a bullet at the end of the NotesHeading section of
+// the project's instruction file (NotesPath), adding the section when missing
+// and creating the file from InitTemplate when there is none. Returns the file.
+func Remember(cwd, note string) (string, error) {
+	path := NotesPath(cwd)
+	var text string
+	switch data, err := os.ReadFile(path); {
+	case err == nil:
+		text = string(data)
+	case os.IsNotExist(err):
+		text = InitTemplate(filepath.Dir(path))
+	default:
+		return "", fmt.Errorf("could not read %s: %v", path, err)
+	}
+	bullet := "- " + strings.ReplaceAll(strings.TrimSpace(note), "\n", " ")
+	lines := splitLines(text)
+	h := -1
+	for i, l := range lines {
+		if strings.TrimRight(l, " \t") == NotesHeading {
+			h = i
+			break
+		}
+	}
+	if h < 0 {
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			lines = append(lines, "")
+		}
+		lines = append(lines, NotesHeading, "", bullet)
+	} else {
+		// The section ends at the next heading (or the file's end), trailing blank lines excluded.
+		end := len(lines)
+		for i := h + 1; i < len(lines); i++ {
+			if strings.HasPrefix(lines[i], "## ") {
+				end = i
+				break
+			}
+		}
+		for end > h+1 && strings.TrimSpace(lines[end-1]) == "" {
+			end--
+		}
+		insert := []string{bullet}
+		if end == h+1 {
+			insert = []string{"", bullet}
+		}
+		lines = append(lines[:end], append(insert, lines[end:]...)...)
+	}
+	out := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+		return "", fmt.Errorf("could not write %s: %v", path, err)
+	}
+	return path, nil
+}
+
+// splitLines is Rust's str::lines: no trailing empty element for a final newline.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	s = strings.TrimSuffix(s, "\n")
+	parts := strings.Split(s, "\n")
+	for i, p := range parts {
+		parts[i] = strings.TrimSuffix(p, "\r")
+	}
+	return parts
+}

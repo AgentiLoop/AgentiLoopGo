@@ -252,6 +252,9 @@ func (a *Agent) Tools() *ToolRegistry     { return a.tools }
 func (a *Agent) Policy() PermissionPolicy { return a.policy }
 func (a *Agent) Hooks() Hooks             { return a.config.Hooks }
 
+// SetSystemPrompt replaces the system prompt (the CLI rebuilds it after a `# note` changed AGENTS.md).
+func (a *Agent) SetSystemPrompt(prompt string) { a.config.SystemPrompt = prompt }
+
 // Limits in effect for the current model, once a run has resolved them (nil before).
 func (a *Agent) Limits() *ModelLimits {
 	if a.limits == nil {
