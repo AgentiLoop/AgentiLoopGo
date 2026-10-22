@@ -550,6 +550,13 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			}
 			st.persist()
 		}
+		// /cd or the model's change_dir moved the agent: the rest of the CLI follows.
+		if msg, moved := st.followCwd(&cwd); moved {
+			tracker = newDiffTracker(cwd)
+			st.persist()
+			q.Send(uiLine{msg})
+			q.Send(uiStatus{status()})
+		}
 		q.Send(uiIdle{})
 	}
 	q.Close()
@@ -649,6 +656,10 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			if st.session.ID != before {
 				replayREPL(st.agent.History)
 			}
+			if msg, moved := st.followCwd(&cwd); moved {
+				renderLine = renderTracked(newDiffTracker(cwd))
+				fmt.Fprintln(os.Stderr, msg)
+			}
 			continue
 		}
 		// Line mode has no raw keyboard during a run, so Ctrl-C is its cancel key:
@@ -671,6 +682,10 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			fmt.Fprintln(os.Stderr, "\ncancelled; session kept")
 		} else if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+		if msg, moved := st.followCwd(&cwd); moved {
+			renderLine = renderTracked(newDiffTracker(cwd))
+			fmt.Fprintln(os.Stderr, msg)
 		}
 		st.persist()
 	}
@@ -734,6 +749,23 @@ func replayREPL(history []core.Message) {
 func systemPrompt(cwd, extra string) (string, []core.Instructions) {
 	found := core.LoadInstructions(cwd, agentiloopHome())
 	return appendExtra(core.AppendInstructions(core.DefaultSystemPrompt, found), extra), found
+}
+
+// followCwd runs after /cd or the model's change_dir moved the agent: cwd, the session's folder
+// and the system prompt (that folder's AGENTS.md / CLAUDE.md) follow. Returns what to show, if it moved.
+func (st *cmdState) followCwd(cwd *string) (string, bool) {
+	if st.agent.Cwd() == *cwd {
+		return "", false
+	}
+	*cwd = st.agent.Cwd()
+	st.session.Cwd = *cwd
+	prompt, found := systemPrompt(*cwd, st.appendPrompt)
+	st.agent.SetSystemPrompt(prompt)
+	msg := "working directory: " + *cwd
+	for _, i := range found {
+		msg += "\ninstructions: " + i.Path
+	}
+	return msg, true
 }
 
 // rememberNote handles a `# note` line: append it to the project's AGENTS.md and reload the
@@ -828,6 +860,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
 	"/status         where you are: folder, provider, model and its limits, session, tools, hooks, settings\n" +
+	"/cd [dir]       show or change the working directory (the model can switch it too)\n" +
 	"/plan [on|off]  plan mode: tools that change something are off, the model plans instead\n" +
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
@@ -968,6 +1001,14 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say(core.CommandListing(core.LoadCommands(st.session.Cwd, agentiloopHome())))
 	case "/hooks":
 		say(st.agent.Hooks().Listing())
+	case "/cd":
+		if arg == "" {
+			say("working directory: " + st.agent.Cwd())
+		} else if dir, err := core.ResolveDir(st.agent.Cwd(), arg); err != nil {
+			say("cd: " + err.Error())
+		} else {
+			st.agent.SetCwd(dir)
+		}
 	case "/plan":
 		on := !st.agent.PlanMode()
 		switch arg {

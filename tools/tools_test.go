@@ -158,10 +158,10 @@ func TestBashTimesOut(t *testing.T) {
 
 func TestDefaultRegistryHasAllBuiltins(t *testing.T) {
 	r := DefaultRegistry()
-	if r.Len() != 9 {
+	if r.Len() != 10 {
 		t.Fatal(r.Len())
 	}
-	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "web_fetch", "todo_write", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "list_dir", "glob", "grep", "web_fetch", "todo_write", "bash", "change_dir"} {
 		if _, ok := r.Get(name); !ok {
 			t.Fatal("missing", name)
 		}

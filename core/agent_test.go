@@ -850,3 +850,35 @@ func TestPlanModeRefusesMutatingToolsAndTaskAndAddsThePlanPrompt(t *testing.T) {
 		t.Fatal("plan prompt still present")
 	}
 }
+
+func TestChangeDirMovesTheAgentOnlyWhenItSucceeds(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(tmp, "project")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &scripted{responses: []ProviderResponse{
+		toolCall("t1", "change_dir", `{"path":"no-such-dir-here"}`),
+		toolCall("t2", "change_dir", `{"path":"project"}`),
+		text("moved"),
+	}}
+	tools := NewToolRegistry()
+	tools.Register(ChangeDir{})
+	a := NewAgent(p, tools, AllowAll{}, cfgTurns(5), ToolContext{Cwd: tmp})
+	err, evs := collect(a, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !any_(evs, func(e Event) bool { x, ok := e.(EvToolResult); return ok && x.ID == "t1" && x.IsError }) {
+		t.Fatal("expected the missing directory to be an error")
+	}
+	if a.Cwd() != sub {
+		t.Fatalf("cwd = %s, want %s", a.Cwd(), sub)
+	}
+	if _, err := ResolveDir(sub, "~"); err != nil {
+		t.Fatal(err)
+	}
+}

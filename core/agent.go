@@ -270,6 +270,10 @@ func (a *Agent) ToolNames() []string {
 	return names
 }
 
+// Cwd is the working directory tools run in (change_dir and /cd move it).
+func (a *Agent) Cwd() string       { return a.tc.Cwd }
+func (a *Agent) SetCwd(cwd string) { a.tc.Cwd = cwd }
+
 // SetSystemPrompt replaces the system prompt (the CLI rebuilds it after a `# note` changed AGENTS.md).
 func (a *Agent) SetSystemPrompt(prompt string) { a.config.SystemPrompt = prompt }
 
@@ -528,6 +532,12 @@ func (a *Agent) RunContent(ctx context.Context, content []ContentBlock, onEvent 
 				output, isError = err.Error(), true
 			} else {
 				output = out
+				// A successful change_dir moves every later tool call.
+				if c.Name == ChangeDirToolName {
+					if dir := changeDirTarget(a.tc.Cwd, c.Input); dir != "" {
+						a.tc.Cwd = dir
+					}
+				}
 			}
 			// Cancelled mid-call: Interrupt records it as interrupted, not as its partial output.
 			if err := ctx.Err(); err != nil {
