@@ -514,6 +514,12 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			q.Send(uiIdle{})
 			continue
 		}
+		// `/history [text]` searches the saved prompts (the TUI writes the file on every prompt).
+		if query, ok := core.HistoryQuery(line); ok {
+			q.Send(uiLine{core.HistoryListing(loadHistory(historyPath()), query)})
+			q.Send(uiIdle{})
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			// Collect the command's output into one transcript entry so
 			// multi-line output (the /model list) isn't double-spaced.
@@ -656,6 +662,11 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		}
 		if strings.TrimSpace(line) == "/memory" {
 			fmt.Fprintln(os.Stderr, st.reloadMemory(cwd))
+			continue
+		}
+		// `/history [text]` searches the line editor's prompts (saved to the file only on exit).
+		if query, ok := core.HistoryQuery(line); ok {
+			fmt.Fprintln(os.Stderr, core.HistoryListing(entries, query))
 			continue
 		}
 		if strings.HasPrefix(line, "/") {
@@ -887,6 +898,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
 	"/rewind [n]     list your prompts, or go back to before prompt #n (its file changes and everything after it are undone)\n" +
+	"/history [text] search your saved prompts (newest 20; all sessions)\n" +
 	"/compact        summarize the conversation to free context\n" +
 	"/sessions       list saved sessions (newest first)\n" +
 	"/resume <id|n>  load a saved session into this REPL\n" +
