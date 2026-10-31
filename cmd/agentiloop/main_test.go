@@ -491,3 +491,10 @@ func TestRewindListingNumbersPromptsAndCountsChangedFiles(t *testing.T) {
 		t.Fatalf("rewindListing =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestRetryingLineNamesThePromptAndWhatWasDropped(t *testing.T) {
+	got := retryingLine(3, "add a test\nfor main", 4)
+	if want := "retrying prompt 3 \"add a test\": 4 message(s) dropped (shell commands are not undone)"; got != want {
+		t.Fatalf("retryingLine = %q, want %q", got, want)
+	}
+}

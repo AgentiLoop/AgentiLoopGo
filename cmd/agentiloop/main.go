@@ -493,6 +493,21 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p
 		}
+		// `/retry` undoes the last prompt (files and messages), shows the cut conversation and sends it again.
+		if line == "/retry" {
+			text, lines, err := st.retryLast()
+			if err != nil {
+				q.Send(uiLine{err.Error()})
+				q.Send(uiIdle{})
+				continue
+			}
+			tracker = newDiffTracker(cwd)
+			q.Send(uiClear{})
+			replayTUI(q, st.agent.History)
+			q.Send(uiLine{strings.Join(lines, "\n")})
+			q.Send(uiUser{text})
+			line = text
+		}
 		// `!cmd` runs here, not through the model; the output joins the conversation.
 		if cmd, ok := core.ShellPassthrough(line); ok {
 			output := runShell(ctx, cwd, cmd)
@@ -648,6 +663,18 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		}
 		if p, ok := core.ResolveCommand(line, st.session.Cwd, agentiloopHome()); ok {
 			line = p
+		}
+		// `/retry` undoes the last prompt (files and messages) and sends it again.
+		if line == "/retry" {
+			text, lines, err := st.retryLast()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			for _, l := range lines {
+				fmt.Fprintln(os.Stderr, l)
+			}
+			line = text
 		}
 		if cmd, ok := core.ShellPassthrough(line); ok {
 			output := runShell(ctx, cwd, cmd)
@@ -897,6 +924,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/diff           show what changed in the git working tree\n" +
 	"/todos          show the model's current task checklist\n" +
 	"/undo           revert the file changes from the last prompt\n" +
+	"/retry          undo the last prompt (its file changes and the reply) and send it again\n" +
 	"/rewind [n]     list your prompts, or go back to before prompt #n (its file changes and everything after it are undone)\n" +
 	"/history [text] search your saved prompts (newest 20; all sessions)\n" +
 	"/compact        summarize the conversation to free context\n" +
@@ -1113,17 +1141,9 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			return nil
 		}
 		p := prompts[n-1]
-		for _, l := range tools.Rewind(agent.Epoch(), p.Index) {
+		lines, dropped := st.cutToPrompt(p)
+		for _, l := range lines {
 			say(l)
-		}
-		dropped := max(len(agent.History)-p.Index, 0)
-		agent.History = agent.History[:min(p.Index, len(agent.History))]
-		// Saved even when nothing is left, so /resume can't bring the dropped messages back.
-		st.session.History = append([]core.Message{}, agent.History...) // [] not null, like Rust
-		if st.sessionsDir != "" {
-			if _, err := st.session.Save(st.sessionsDir); err != nil {
-				say(fmt.Sprintf("warning: could not save session: %v", err))
-			}
 		}
 		say(fmt.Sprintf("rewound to before prompt %d \"%s\": %d message(s) dropped (shell commands are not undone)", n, promptTitle(p.Text), dropped))
 	case "/compact":
@@ -1307,6 +1327,42 @@ func promptTitle(text string) string {
 		return string(r[:59]) + "…"
 	}
 	return line
+}
+
+// cutToPrompt cuts the conversation back to before prompt p (/rewind, /retry): the file changes of p
+// and every later prompt are undone and the session is saved — even when nothing is left, so /resume
+// can't bring the dropped messages back. Returns the lines to show and how many messages were dropped.
+func (st *cmdState) cutToPrompt(p tools.RewindPrompt) ([]string, int) {
+	agent := st.agent
+	lines := tools.Rewind(agent.Epoch(), p.Index)
+	dropped := max(len(agent.History)-p.Index, 0)
+	agent.History = agent.History[:min(p.Index, len(agent.History))]
+	st.session.History = append([]core.Message{}, agent.History...) // [] not null, like Rust
+	if st.sessionsDir != "" {
+		if _, err := st.session.Save(st.sessionsDir); err != nil {
+			lines = append(lines, fmt.Sprintf("warning: could not save session: %v", err))
+		}
+	}
+	return lines, dropped
+}
+
+// retryLast handles /retry: cut the conversation back to before the last prompt, as /rewind <last>
+// does, and return that prompt's text to send again, with the lines to show first.
+func (st *cmdState) retryLast() (string, []string, error) {
+	prompts := tools.RewindPrompts(st.agent.Epoch())
+	if len(prompts) == 0 {
+		return "", nil, errors.New(nothingToRetry)
+	}
+	p := prompts[len(prompts)-1]
+	lines, dropped := st.cutToPrompt(p)
+	return p.Text, append(lines, retryingLine(len(prompts), p.Text, dropped)), nil
+}
+
+const nothingToRetry = "nothing to retry (prompts sent since the session was opened, cleared or compacted can be retried)"
+
+// retryingLine is what /retry shows before it sends prompt n again.
+func retryingLine(n int, text string, dropped int) string {
+	return fmt.Sprintf("retrying prompt %d \"%s\": %d message(s) dropped (shell commands are not undone)", n, promptTitle(text), dropped)
 }
 
 // rewindListing is what /rewind without a number shows: the prompts it can go back to, oldest first.
