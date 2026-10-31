@@ -137,6 +137,21 @@ func AppendInstructions(base string, found []Instructions) string {
 	return b.String()
 }
 
+// InstructionsListing is what /memory shows after reloading: each instructions file now in the
+// system prompt with its size (lines, bytes, ~tokens at 4 bytes each, as /context estimates),
+// or how to make one.
+func InstructionsListing(found []Instructions) string {
+	if len(found) == 0 {
+		return "no AGENTS.md or CLAUDE.md found (in ~/.agentiloop, or from here up to the repo root); /init creates one, # <note> adds a note"
+	}
+	out := fmt.Sprintf("reloaded %d instructions file(s) into the system prompt:", len(found))
+	for _, i := range found {
+		bytes := len(i.Text)
+		out += fmt.Sprintf("\n  %s  (%d lines, %d bytes, ~%d tokens)", i.Path, len(splitLines(i.Text)), bytes, (bytes+3)/4)
+	}
+	return out
+}
+
 // InitTemplate is a starter AGENTS.md for the project in dir, with build/test commands guessed from the files present.
 func InitTemplate(dir string) string {
 	name := filepath.Base(dir)

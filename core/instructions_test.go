@@ -126,6 +126,17 @@ func TestAtImportsInlineFilesAndLeaveUnresolvableLinesAlone(t *testing.T) {
 	}
 }
 
+func TestInstructionsListingShowsEachFileWithItsSizeOrHowToMakeOne(t *testing.T) {
+	if got := InstructionsListing(nil); !strings.HasPrefix(got, "no AGENTS.md or CLAUDE.md found") {
+		t.Fatal(got)
+	}
+	found := []Instructions{{Path: "/h/AGENTS.md", Text: "a\nb\n"}, {Path: "/p/CLAUDE.md", Text: strings.Repeat("x", 9)}}
+	want := "reloaded 2 instructions file(s) into the system prompt:\n  /h/AGENTS.md  (2 lines, 4 bytes, ~1 tokens)\n  /p/CLAUDE.md  (1 lines, 9 bytes, ~3 tokens)"
+	if got := InstructionsListing(found); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}
+
 func TestNoteLinesNeedAHashAndASpace(t *testing.T) {
 	for line, want := range map[string]string{"# always run cargo fmt": "always run cargo fmt", "  #  spaced  ": "spaced", "#": "", "# ": "", "#hashtag": "", "fix bug #12": ""} {
 		got, ok := NoteLine(line)

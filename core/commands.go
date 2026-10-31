@@ -17,6 +17,7 @@ import (
 var BuiltinCommands = []string{
 	"clear", "usage", "export", "init", "diff", "todos", "undo", "model", "compact", "sessions", "resume", "mcp", "commands",
 	"hooks", "help", "setup", "exit", "quit", "status", "cd", "plan", "copy", "rewind", "context",
+	"memory",
 }
 
 type CustomCommand struct {

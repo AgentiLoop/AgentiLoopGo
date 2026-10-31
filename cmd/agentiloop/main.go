@@ -508,6 +508,12 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			q.Send(uiIdle{})
 			continue
 		}
+		// `/memory` reloads the instructions files (the system prompt needs the startup flag).
+		if strings.TrimSpace(line) == "/memory" {
+			q.Send(uiLine{st.reloadMemory(cwd)})
+			q.Send(uiIdle{})
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			// Collect the command's output into one transcript entry so
 			// multi-line output (the /model list) isn't double-spaced.
@@ -648,6 +654,10 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 			fmt.Fprintln(os.Stderr, st.rememberNote(cwd, text))
 			continue
 		}
+		if strings.TrimSpace(line) == "/memory" {
+			fmt.Fprintln(os.Stderr, st.reloadMemory(cwd))
+			continue
+		}
 		if strings.HasPrefix(line, "/") {
 			before := st.session.ID
 			if err := st.slashCommand(ctx, line, func(s string) { fmt.Fprintln(os.Stderr, s) }); err != nil {
@@ -781,6 +791,14 @@ func (st *cmdState) rememberNote(cwd, text string) string {
 	return fmt.Sprintf("\U0001f4dd noted in %s (in effect from the next request)", path)
 }
 
+// reloadMemory handles /memory: read AGENTS.md / CLAUDE.md again (edited outside, or by the
+// model) into the running agent's system prompt, and list what is in it now.
+func (st *cmdState) reloadMemory(cwd string) string {
+	prompt, found := systemPrompt(cwd, st.appendPrompt)
+	st.agent.SetSystemPrompt(prompt)
+	return core.InstructionsListing(found)
+}
+
 // runShell runs a `!cmd` line through the bash tool (same shell, timeout and
 // output cap as the model's commands); a failure is returned as its message.
 func runShell(ctx context.Context, cwd, command string) string {
@@ -859,6 +877,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/export [file]  save the conversation as Markdown\n" +
 	"/copy [n]       copy the last reply (or the nth from the end) to the clipboard\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
+	"/memory         reload AGENTS.md / CLAUDE.md into the system prompt and list them\n" +
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
 	"/status         where you are: folder, provider, model and its limits, session, tools, hooks, settings\n" +
@@ -1016,7 +1035,7 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			say(err.Error())
 			break
 		}
-		say("created " + path + "; edit it, then restart agentiloop to load it")
+		say("created " + path + "; edit it, then /memory to load it")
 	case "/diff":
 		text, err := gitChanges(st.session.Cwd)
 		if err != nil {
