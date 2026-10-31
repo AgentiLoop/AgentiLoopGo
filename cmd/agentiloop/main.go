@@ -856,6 +856,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/mcp            list MCP servers and their tools\n" +
 	"/usage          tokens used since start and how full the context is\n" +
 	"/export [file]  save the conversation as Markdown\n" +
+	"/copy [n]       copy the last reply (or the nth from the end) to the clipboard\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
 	"/commands       list your custom commands (.agentiloop/commands/*.md)\n" +
 	"/hooks          list the hooks loaded from .agentiloop/hooks.json\n" +
@@ -983,6 +984,25 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			break
 		}
 		say("exported the conversation to " + path)
+	case "/copy":
+		n := 1
+		if arg != "" {
+			v, err := strconv.Atoi(arg)
+			if err != nil || v < 1 {
+				say("usage: /copy [n]  (1 = the last reply, 2 = the one before, …)")
+				break
+			}
+			n = v
+		}
+		text, ok := core.NthReply(agent.History, n)
+		switch {
+		case ok:
+			say(copiedLine(n, utf8.RuneCountInString(text), copyText(text)))
+		case n == 1:
+			say("no reply to copy yet")
+		default:
+			say(fmt.Sprintf("there is no reply #%d from the end", n))
+		}
 	case "/init":
 		path, err := core.InitInstructions(st.session.Cwd)
 		if err != nil {
@@ -1154,6 +1174,15 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 		say(fmt.Sprintf("unknown command %s (try /help)", cmd))
 	}
 	return nil
+}
+
+// copiedLine is what /copy reports after copying reply n (1 = the last) of chars characters.
+func copiedLine(n, chars int, via string) string {
+	which := "the last reply"
+	if n != 1 {
+		which = fmt.Sprintf("reply #%d from the end", n)
+	}
+	return fmt.Sprintf("copied %s (%d characters) to the clipboard via %s", which, chars, via)
 }
 
 // usageLine is the first line of /usage: tokens spent since agentiloop started.

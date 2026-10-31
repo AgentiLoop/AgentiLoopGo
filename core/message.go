@@ -195,6 +195,25 @@ func (m Message) Text() string {
 	return sb.String()
 }
 
+// NthReply is the text of the nth assistant reply counting back from the
+// newest (1 = the last one); replies that are only tool calls don't count.
+func NthReply(history []Message, n int) (string, bool) {
+	if n < 1 {
+		return "", false
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != RoleAssistant {
+			continue
+		}
+		if text := history[i].Text(); strings.TrimSpace(text) != "" {
+			if n--; n == 0 {
+				return text, true
+			}
+		}
+	}
+	return "", false
+}
+
 type StopReason string
 
 const (

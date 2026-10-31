@@ -14,3 +14,29 @@ func TestToolUseInputIsCanonicalJSON(t *testing.T) {
 		t.Fatalf("invalid JSON should be kept, got %s", got)
 	}
 }
+
+func TestNthReplyCountsBackOverTextRepliesOnly(t *testing.T) {
+	asst := func(blocks ...ContentBlock) Message { return Message{Role: RoleAssistant, Content: blocks} }
+	call := ToolUseBlock("1", "bash", json.RawMessage(`{}`))
+	history := []Message{
+		UserText("hi"),
+		asst(TextBlock("first")),
+		UserText("more"),
+		asst(TextBlock("second "), call, TextBlock("part")),
+		ToolResults(nil),
+		asst(call),
+		asst(TextBlock("  ")),
+	}
+	for _, c := range []struct {
+		n    int
+		want string
+		ok   bool
+	}{{1, "second part", true}, {2, "first", true}, {3, "", false}, {0, "", false}} {
+		if got, ok := NthReply(history, c.n); got != c.want || ok != c.ok {
+			t.Fatalf("NthReply(%d) = %q, %v; want %q, %v", c.n, got, ok, c.want, c.ok)
+		}
+	}
+	if _, ok := NthReply(nil, 1); ok {
+		t.Fatal("empty history has no reply")
+	}
+}
