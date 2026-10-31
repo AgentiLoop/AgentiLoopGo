@@ -445,6 +445,15 @@ func budgetRequest(req *ProviderRequest, limits ModelLimits) error {
 	return nil
 }
 
+// ContextBreakdown measures what the next request would send, part by part (for /context).
+func (a *Agent) ContextBreakdown() ContextBreakdown {
+	system := a.config.SystemPrompt
+	if a.planMode {
+		system += "\n\n" + PlanModePrompt
+	}
+	return Breakdown(system, a.toolSpecs(), a.History)
+}
+
 // Run is the core agentic loop: send → if tool_use, execute tools, append results, repeat.
 func (a *Agent) Run(ctx context.Context, userInput string, onEvent func(Event)) error {
 	return a.RunContent(ctx, []ContentBlock{TextBlock(userInput)}, onEvent)

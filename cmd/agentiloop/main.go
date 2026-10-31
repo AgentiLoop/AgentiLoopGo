@@ -855,6 +855,7 @@ const helpText = "!<command>      run a shell command here; its output joins the
 	"/model [n|id]   show picker, or pick #n / set id directly\n" +
 	"/mcp            list MCP servers and their tools\n" +
 	"/usage          tokens used since start and how full the context is\n" +
+	"/context        estimate what fills the context: system prompt, tools, messages, tool results\n" +
 	"/export [file]  save the conversation as Markdown\n" +
 	"/copy [n]       copy the last reply (or the nth from the end) to the clipboard\n" +
 	"/init           create a starter AGENTS.md for this project\n" +
@@ -966,6 +967,12 @@ func (st *cmdState) slashCommand(ctx context.Context, line string, say func(stri
 			maxRetries:      agent.Config().MaxRetries,
 			usage:           agent.Usage(),
 		}))
+	case "/context":
+		var window *uint64
+		if l := agent.Limits(); l != nil {
+			window = l.ContextWindow
+		}
+		say(core.RenderContext(agent.ContextBreakdown(), window, agent.LastInputTokens()))
 	case "/export":
 		st.session.History = append([]core.Message(nil), agent.History...)
 		if len(st.session.History) == 0 {
