@@ -1,4 +1,4 @@
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad.svg" width="900" alt="Sidrune AI, Silver Sponsor: One API for GPT, Claude and other leading AI models. Sign up and get $3 in API credits." /></a>
+<!-- <a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad.svg" width="900" alt="Sidrune AI, Silver Sponsor: One API for GPT, Claude and other leading AI models. Sign up and get $3 in API credits." /></a> -->
 
 # AgentiLoopGo
 
@@ -620,7 +620,7 @@ AgentiLoopGo is the terminal sibling of **[AgentiLoop Agent!](https://github.com
 
 ---
 
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad.svg" width="900" alt="Sidrune AI, Silver Sponsor: One API for GPT, Claude and other leading AI models. Sign up and get $3 in API credits." /></a>
+<!-- <a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad.svg" width="900" alt="Sidrune AI, Silver Sponsor: One API for GPT, Claude and other leading AI models. Sign up and get $3 in API credits." /></a> -->
 
 ---
 

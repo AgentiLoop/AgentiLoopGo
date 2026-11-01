@@ -1,4 +1,4 @@
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_de.svg" width="900" alt="Sidrune AI, Silver-Sponsor: Eine API für GPT, Claude und andere führende KI-Modelle. Registriere dich und erhalte $3 API-Guthaben." /></a>
+<!-- <a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_de.svg" width="900" alt="Sidrune AI, Silver-Sponsor: Eine API für GPT, Claude und andere führende KI-Modelle. Registriere dich und erhalte $3 API-Guthaben." /></a> -->
 
 # AgentiLoopGo
 
@@ -705,7 +705,7 @@ Alles, was nicht zur TUI oder zur Kommandozeile gehört, nutzt die Standardbibli
 
 ---
 
-<a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_de.svg" width="900" alt="Sidrune AI, Silver-Sponsor: Eine API für GPT, Claude und andere führende KI-Modelle. Registriere dich und erhalte $3 API-Guthaben." /></a>
+<!-- <a href="https://fluxionai.space/register?source=github&campaign=github-sidrune-agentiloop-agent&promo=SDRAGENTLOOP"><img src="docs/sponsors/sidrune-ai-silver-ad_de.svg" width="900" alt="Sidrune AI, Silver-Sponsor: Eine API für GPT, Claude und andere führende KI-Modelle. Registriere dich und erhalte $3 API-Guthaben." /></a> -->
 
 ---
 
