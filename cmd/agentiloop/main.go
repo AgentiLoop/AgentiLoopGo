@@ -573,6 +573,9 @@ func runTUIMode(ctx context.Context, st *cmdState, q *uiQueue, submit chan strin
 			if cancelled, err := runCancellable(ctx, st.agent, core.MentionContent(line, attached), onEvent, cancel); cancelled {
 				q.Send(uiLine{"Cancelled. Session kept; send your next prompt."})
 			} else if err != nil {
+				if st.newSessionIfRefused(err) {
+					q.Send(uiStatus{status()})
+				}
 				q.Send(uiError{err.Error()})
 			}
 			st.persist()
@@ -729,6 +732,7 @@ func runREPL(ctx context.Context, st *cmdState, cwd string) error {
 		if cancelled {
 			fmt.Fprintln(os.Stderr, "\ncancelled; session kept")
 		} else if err != nil {
+			st.newSessionIfRefused(err)
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 		if msg, moved := st.followCwd(&cwd); moved {
@@ -857,6 +861,17 @@ func shellLine(command, output string) string {
 	return "$ " + command + "\n" + output
 }
 
+// newSessionIfRefused: after a run the provider refused, the agent has dropped the conversation;
+// carry on in a new session, as /clear does, so the saved one is not overwritten. True when that happened.
+func (st *cmdState) newSessionIfRefused(err error) bool {
+	if !errors.Is(err, core.ErrRefused) {
+		return false
+	}
+	st.session = core.NewSession(st.session.Cwd, st.provider.Name(), st.agent.Model())
+	st.agent.SetCacheKey(st.session.ID)
+	return true
+}
+
 func (st *cmdState) persist() {
 	if st.sessionsDir == "" {
 		return
@@ -873,6 +888,7 @@ func (st *cmdState) persist() {
 
 // fallbackModels is used when /v1/models can't be reached (newest first).
 var fallbackModels = []core.ModelInfo{
+	{ID: "claude-fable-5-2", DisplayName: "Claude Fable 5.2"},
 	{ID: "claude-fable-5-1", DisplayName: "Claude Fable 5.1"},
 	{ID: "claude-opus-5", DisplayName: "Claude Opus 5"},
 	{ID: "claude-sonnet-5", DisplayName: "Claude Sonnet 5"},

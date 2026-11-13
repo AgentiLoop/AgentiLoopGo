@@ -145,27 +145,82 @@ func TestAnthropicCacheBreakpointOnlyOnTheLastBlockOfTheLastMessage(t *testing.T
 	}
 }
 
-func TestAnthropicOAuthTokenAddsIdentityAndBearer(t *testing.T) {
-	var gotAuth, gotBeta string
+// serveCapture serves one canned JSON reply to POST /v1/messages and records the request.
+func serveCapture(t *testing.T, reply string) (string, *http.Header, *[]byte) {
+	t.Helper()
+	var head http.Header
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth, gotBeta = r.Header.Get("authorization"), r.Header.Get("anthropic-beta")
+		head = r.Header.Clone()
 		body, _ = io.ReadAll(r.Body)
-		w.Write([]byte(`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":1}}`))
+		w.Write([]byte(reply))
 	}))
-	defer srv.Close()
-	p := &Anthropic{client: &http.Client{}, credential: sanitize(" sk-ant-oat01-abc\n"), baseURL: srv.URL}
+	t.Cleanup(srv.Close)
+	return srv.URL, &head, &body
+}
+
+func TestAnOAuthTokenSendsTheClaudeCodeProfile(t *testing.T) {
+	base, head, body := serveCapture(t, `{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	p := &Anthropic{client: &http.Client{}, credential: sanitize(" sk-ant-oat01-abc\n"), baseURL: base}
 	resp, err := p.Complete(context.Background(), req())
 	if err != nil || resp.Message.Text() != "ok" || resp.StopReason != core.StopEndTurn {
 		t.Fatal(err, resp)
 	}
-	if gotAuth != "Bearer sk-ant-oat01-abc" || !strings.Contains(gotBeta, "oauth-2025-04-20") {
-		t.Fatal(gotAuth, gotBeta)
+	for name, want := range map[string]string{
+		"authorization": "Bearer sk-ant-oat01-abc",
+		"user-agent":    "claude-cli/2.1.999 (external, cli)",
+		"x-app":         "cli",
+		"accept":        "application/json",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-beta": "claude-code-20250219,oauth-2025-04-20,prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11",
+		"x-api-key":      "",
+	} {
+		if got := head.Get(name); got != want {
+			t.Fatalf("%s: got %q want %q", name, got, want)
+		}
 	}
-	var sent struct{ System []struct{ Text string } }
-	json.Unmarshal(body, &sent)
-	if len(sent.System) != 2 || sent.System[0].Text != claudeCodeIdentity || sent.System[1].Text != "s" {
-		t.Fatalf("%s", body)
+	var sent struct{ System json.RawMessage }
+	json.Unmarshal(*body, &sent)
+	jsonEq(t, sent.System, `[
+		{"type": "text", "text": "x-anthropic-billing-header: cc_version=2.1.999.391; cc_entrypoint=sdk-cli;"},
+		{"type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."},
+		{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]`)
+}
+
+func TestAnAPIKeySendsNoClaudeCodeProfileAndARefusalIsReported(t *testing.T) {
+	base, head, body := serveCapture(t, `{"content":[],"stop_reason":"refusal","usage":{"input_tokens":1,"output_tokens":0}}`)
+	p := &Anthropic{client: &http.Client{}, credential: "sk-ant-api-test", baseURL: base}
+	resp, err := p.Complete(context.Background(), req())
+	if err != nil || resp.StopReason != core.StopRefusal || len(resp.Message.Content) != 0 {
+		t.Fatal(err, resp)
+	}
+	if got := head.Get("x-api-key"); got != "sk-ant-api-test" {
+		t.Fatal(got)
+	}
+	for _, name := range []string{"authorization", "anthropic-beta", "x-app", "anthropic-dangerous-direct-browser-access"} {
+		if got := head.Get(name); got != "" {
+			t.Fatalf("%s: %q", name, got)
+		}
+	}
+	if ua := head.Get("user-agent"); strings.Contains(ua, "claude-cli") {
+		t.Fatal(ua)
+	}
+	var sent struct{ System json.RawMessage }
+	json.Unmarshal(*body, &sent)
+	jsonEq(t, sent.System, `[{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]`)
+}
+
+func TestStopReasonsMapToTheCoreEnum(t *testing.T) {
+	for raw, want := range map[string]core.StopReason{
+		"end_turn": core.StopEndTurn, "tool_use": core.StopToolUse, "max_tokens": core.StopMaxTokens,
+		"stop_sequence": core.StopStopSequence, "refusal": core.StopRefusal, "pause_turn": core.StopOther,
+	} {
+		if got := parseStopReason(&raw); got != want {
+			t.Fatalf("%s: got %s want %s", raw, got, want)
+		}
+	}
+	if got := parseStopReason(nil); got != core.StopOther {
+		t.Fatal(got)
 	}
 }
 

@@ -399,6 +399,7 @@ func TestStreamJSONLinesHaveATypeAndTheEventFields(t *testing.T) {
 		`{"elapsed_ms":900,"first_token_ms":900,"input_tokens":10,"output_tokens":5,"type":"turn"}`:  core.EvTurnComplete{InputTokens: 10, OutputTokens: 5, ElapsedMs: 900, FirstTokenMs: &ms},
 		`{"before_tokens":100,"messages_dropped":4,"type":"compacted"}`:                              core.EvCompacted{BeforeTokens: 100, MessagesDropped: 4},
 		`{"stop_reason":"end_turn","type":"done"}`:                                                   core.EvDone{StopReason: core.StopEndTurn},
+		`{"stop_reason":"refusal","type":"done"}`:                                                    core.EvDone{StopReason: core.StopRefusal},
 		`{"attempt":1,"delay_ms":1000,"error":"Anthropic 529","max_retries":3,"type":"retry"}`:       core.EvRetry{Attempt: 1, MaxRetries: 3, DelayMs: 1000, Error: "Anthropic 529"},
 	}
 	for want, ev := range cases {

@@ -134,6 +134,14 @@ const PlanModePrompt = "PLAN MODE IS ON. You may only inspect the project: read 
 	"which files you would change and how, which commands you would run, and what could go wrong. " +
 	"Finish by telling the user to turn plan mode off (/plan) when they want you to carry it out."
 
+// RefusalMessage is shown when the provider refuses a turn (see ErrRefused).
+const RefusalMessage = "The model refused this request. The conversation was reset — rephrase or start a new task."
+
+// ErrRefused is the error Run ends with when the provider refuses a turn. The conversation
+// is already dropped by then: a refused turn left in the history would be sent again
+// with every later prompt and refused again.
+var ErrRefused = errors.New(RefusalMessage)
+
 // transcriptResultLimit: tool output longer than this is trimmed in the compaction transcript.
 const transcriptResultLimit = 2_000
 
@@ -515,6 +523,15 @@ func (a *Agent) RunContent(ctx context.Context, content []ContentBlock, onEvent 
 		a.lastInputTokens = resp.InputTokens
 		a.addUsage(resp)
 		onEvent(EvTurnComplete{resp.InputTokens, resp.OutputTokens, uint64(time.Since(started).Milliseconds()), firstToken})
+
+		// A refusal carries no usable content and asking again only earns another one:
+		// end the run and drop the conversation instead of keeping the refused turn.
+		if resp.StopReason == StopRefusal {
+			a.Clear()
+			onEvent(EvDone{StopRefusal})
+			a.config.Hooks.RunStop(ctx, a.tc.Cwd, StopRefusal)
+			return ErrRefused
+		}
 
 		if text := resp.Message.Text(); text != "" {
 			onEvent(EvText{text})

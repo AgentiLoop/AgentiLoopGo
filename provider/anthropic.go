@@ -20,10 +20,13 @@ const (
 	anthropicDefaultBaseURL = "https://api.anthropic.com"
 	anthropicAPIVersion     = "2023-06-01"
 	oauthPrefix             = "sk-ant-oat01-"
-	oauthBeta               = "oauth-2025-04-20,prompt-caching-2024-07-31"
-	// OAuth tokens (from `claude setup-token`) are gated at the API to requests
-	// whose first system block is exactly this string.
-	claudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
+	// The Claude Code client profile sent with an OAuth token (from `claude setup-token`), the
+	// same one Agent! sends: beta flags, client headers and two leading system blocks. A client
+	// version older than the model asks for is turned away (`claude_code_version_too_old`).
+	oauthBeta           = "claude-code-20250219,oauth-2025-04-20,prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11"
+	claudeCodeUserAgent = "claude-cli/2.1.999 (external, cli)"
+	claudeCodeBilling   = "x-anthropic-billing-header: cc_version=2.1.999.391; cc_entrypoint=sdk-cli;"
+	claudeCodeIdentity  = "You are Claude Code, Anthropic's official CLI for Claude."
 )
 
 type Anthropic struct {
@@ -128,7 +131,7 @@ func (a *Anthropic) sendMessages(ctx context.Context, req core.ProviderRequest, 
 	}
 	system := []sys{}
 	if a.IsOAuth() {
-		system = append(system, sys{"text", claudeCodeIdentity, nil})
+		system = append(system, sys{"text", claudeCodeBilling, nil}, sys{"text", claudeCodeIdentity, nil})
 	}
 	system = append(system, sys{"text", req.System, cacheControl})
 	body := map[string]any{
@@ -153,6 +156,12 @@ func (a *Anthropic) sendMessages(ctx context.Context, req core.ProviderRequest, 
 	}
 	hr.Header.Set("content-type", "application/json")
 	a.auth(hr, oauthBeta)
+	if a.IsOAuth() {
+		hr.Header.Set("user-agent", claudeCodeUserAgent)
+		hr.Header.Set("x-app", "cli")
+		hr.Header.Set("accept", "application/json")
+		hr.Header.Set("anthropic-dangerous-direct-browser-access", "true")
+	}
 	resp, err := a.client.Do(hr)
 	if err != nil {
 		return nil, fmt.Errorf("request to Anthropic failed: %w", err)
@@ -367,7 +376,7 @@ func parseStopReason(raw *string) core.StopReason {
 		return core.StopOther
 	}
 	switch s := core.StopReason(*raw); s {
-	case core.StopEndTurn, core.StopToolUse, core.StopMaxTokens, core.StopStopSequence:
+	case core.StopEndTurn, core.StopToolUse, core.StopMaxTokens, core.StopStopSequence, core.StopRefusal:
 		return s
 	}
 	return core.StopOther

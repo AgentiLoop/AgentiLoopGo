@@ -261,6 +261,44 @@ func TestClearDropsHistory(t *testing.T) {
 	}
 }
 
+func TestARefusalEndsTheRunAndDropsTheConversation(t *testing.T) {
+	refused := text("I can't")
+	refused.StopReason = StopRefusal
+	p := &scripted{responses: []ProviderResponse{text("hello"), toolCall("t1", "echo", `{"msg":"x"}`), refused, text("fresh")}}
+	a := newAgent(p, AllowAll{}, cfgTurns(5))
+	if err, _ := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	epoch := a.Epoch()
+
+	// Refused in the middle of a task, after a tool call already ran.
+	err, evs := collect(a, "do it")
+	if !errors.Is(err, ErrRefused) || err.Error() != RefusalMessage {
+		t.Fatal(err)
+	}
+	if len(a.History) != 0 {
+		t.Fatal("the refused conversation must not be sent again")
+	}
+	if a.Epoch() == epoch {
+		t.Fatal("epoch unchanged")
+	}
+	if d, ok := evs[len(evs)-1].(EvDone); !ok || d.StopReason != StopRefusal {
+		t.Fatalf("%#v", evs[len(evs)-1])
+	}
+	if any_(evs, func(e Event) bool { _, ok := e.(EvText); return ok }) {
+		t.Fatal("a refusal is not a reply")
+	}
+
+	// The next prompt starts from nothing.
+	if err, _ := collect(a, "again"); err != nil {
+		t.Fatal(err)
+	}
+	reqs := p.reqs()
+	if len(reqs) != 4 || len(reqs[3].Messages) != 1 || reqs[3].Messages[0].Text() != "again" || len(a.History) != 2 {
+		t.Fatal(len(reqs), reqs[len(reqs)-1].Messages, len(a.History))
+	}
+}
+
 // ---- compaction -------------------------------------------------------------
 
 func big(t string, in uint64) ProviderResponse {

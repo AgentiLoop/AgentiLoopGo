@@ -221,5 +221,7 @@ const (
 	StopToolUse      StopReason = "tool_use"
 	StopMaxTokens    StopReason = "max_tokens"
 	StopStopSequence StopReason = "stop_sequence"
-	StopOther        StopReason = "other"
+	// StopRefusal: the provider refused the turn (Anthropic stop_reason "refusal").
+	StopRefusal StopReason = "refusal"
+	StopOther   StopReason = "other"
 )
